@@ -151,16 +151,18 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
             header = Trim$(CStr(wsSrc.Cells(1, c).value))
             If header <> "" And IsLikelySubjectGradeColumn(header) Then
                 Dim schemeKey As String
+                Dim subjectName As String
                 schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                subjectName = StripGradeHeaderSuffix(header)
 
-                If schemeKey <> "" Then
+                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
                     ReDim Preserve subjectSchemeKeys(1 To subjCount)
 
                     subjectCols(subjCount) = c
-                    subjectNames(subjCount) = StripGradeHeaderSuffix(header)
+                    subjectNames(subjCount) = subjectName
                     subjectSchemeKeys(subjCount) = schemeKey
                 End If
             End If
@@ -249,6 +251,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
     Dim vrSubjects As String, rawGrade As String
+    Dim subjectName As String
 
     On Error GoTo FailSafe
 
@@ -289,13 +292,14 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             header = Trim$(CStr(wsSrc.Cells(1, c).value))
             If header <> "" And IsLikelySubjectGradeColumn(header) Then
                 schemeKey = GetGradeSchemeKey(wsSrc, c, header)
-                If schemeKey <> "" Then
+                subjectName = StripGradeHeaderSuffix(header)
+                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
                     ReDim Preserve subjectSchemeKeys(1 To subjCount)
                     subjectCols(subjCount) = c
-                    subjectNames(subjCount) = StripGradeHeaderSuffix(header)
+                    subjectNames(subjCount) = subjectName
                     subjectSchemeKeys(subjCount) = schemeKey
                 End If
             End If
@@ -1222,7 +1226,7 @@ Private Function IsLikelySubjectGradeColumn(ByVal header As String) As Boolean
     h = UCase$(Trim$(header))
 
     ' Never treat score columns as grade columns.
-    If InStr(1, h, "(SCORE)", vbTextCompare) > 0 Then
+    If InStr(1, h, "SCORE", vbTextCompare) > 0 Then
         IsLikelySubjectGradeColumn = False
         Exit Function
     End If
@@ -1432,6 +1436,18 @@ Private Function InferLevelCodeFromClass(ByVal className As String) As String
         ch = Mid$(s, i, 1)
         If ch >= "1" And ch <= "5" Then
             InferLevelCodeFromClass = "S" & ch
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function SubjectAlreadyAdded(ByRef subjectNames() As String, _
+                                     ByVal subjCount As Long, _
+                                     ByVal subjectName As String) As Boolean
+    Dim i As Long
+    For i = 1 To subjCount
+        If StrComp(Trim$(subjectNames(i)), Trim$(subjectName), vbTextCompare) = 0 Then
+            SubjectAlreadyAdded = True
             Exit Function
         End If
     Next i
