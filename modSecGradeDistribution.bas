@@ -255,6 +255,8 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim subjectName As String
     Dim isVrSubject As Boolean
     Dim g1Taken As Long, g2Taken As Long, g3Taken As Long
+    Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long
+    Dim groupTotalCount As Long
     Dim fsbbGroup As String
     Dim groupThresholdPct As Double
 
@@ -345,6 +347,10 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         g1Taken = 0
         g2Taken = 0
         g3Taken = 0
+        g1GroupCount = 0
+        g2GroupCount = 0
+        g3GroupCount = 0
+        groupTotalCount = 0
 
         For i = 1 To subjCount
             rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
@@ -352,6 +358,17 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             rawScore = ""
             If subjectScoreCols(i) > 0 Then
                 rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
+            End If
+
+            ' Group base includes attempted subjects and those marked VR/MC.
+            If gradeStr <> "" Or rawGrade = "VR" Or rawScore = "VR" _
+               Or rawGrade = "MC" Or rawScore = "MC" Then
+                groupTotalCount = groupTotalCount + 1
+                Select Case UCase$(Trim$(subjectSchemeKeys(i)))
+                    Case "G1": g1GroupCount = g1GroupCount + 1
+                    Case "G2": g2GroupCount = g2GroupCount + 1
+                    Case "G3": g3GroupCount = g3GroupCount + 1
+                End Select
             End If
 
             isVrSubject = (rawGrade = "VR" Or rawScore = "VR")
@@ -381,7 +398,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 NextSubject:
         Next i
 
-        If attemptedCount > 0 Then
+        If attemptedCount > 0 Or groupTotalCount > 0 Then
             If failCount >= atRiskFailThreshold Then
                 riskBand = "AT RISK"
             ElseIf failCount >= 1 Then
@@ -394,7 +411,7 @@ NextSubject:
             wsOut.Cells(outRow, 2).value = className
             wsOut.Cells(outRow, 3).value = regNo
             wsOut.Cells(outRow, 4).value = studentName
-            fsbbGroup = ResolveFsbbGroup(g1Taken, g2Taken, g3Taken, attemptedCount, groupThresholdPct)
+            fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
             wsOut.Cells(outRow, 5).value = attemptedCount
             wsOut.Cells(outRow, 6).value = passCount
             wsOut.Cells(outRow, 7).value = failCount
