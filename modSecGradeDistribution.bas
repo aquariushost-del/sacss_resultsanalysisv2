@@ -9,6 +9,8 @@ Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
 Private Const TOP_NAV_START_CELL As String = "T3"
 Private Const TOP_NAV_BTN_PREFIX As String = "Nav_TopQual_"
+Private Const LEVEL_MODE_AUTO_FSBB As String = "AUTO_FSBB"
+Private Const LEVEL_MODE_LEGACY_NO_DOWNWARD As String = "LEGACY_NO_DOWNWARD"
 
 Private Type TopStudentRec
     LevelCode As String
@@ -84,7 +86,7 @@ Public Sub BuildSec_TopQualityByLevel()
         outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G1", 10, recs, recCount)
 
         FormatTopQualitySheet wsOut, outRow - 1
-        AddAtRiskHomeButton wsOut
+        AddTopQualityHomeButton wsOut
     Next lvl
 
     BuildTopQualityNavigation
@@ -168,15 +170,15 @@ Private Sub CreateTopQualityNavButton(ByVal wsNav As Worksheet, _
 
     With shp
         .Name = TOP_NAV_BTN_PREFIX & targetSheetName
-        .Fill.ForeColor.RGB = RGB(197, 217, 241)
+        .Fill.ForeColor.RGB = RGB(217, 234, 211)
         .Fill.Transparency = 0#
-        .line.ForeColor.RGB = RGB(84, 141, 212)
+        .line.ForeColor.RGB = RGB(106, 168, 79)
         .line.Weight = 1.5
         With .TextFrame2
             .TextRange.text = displayText
             .TextRange.Font.Name = "Calibri"
             .TextRange.Font.Size = 10.5
-            .TextRange.Font.Fill.ForeColor.RGB = RGB(31, 73, 125)
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(39, 78, 19)
             .TextRange.ParagraphFormat.Alignment = msoAlignCenter
             .VerticalAnchor = msoAnchorMiddle
             .MarginLeft = 6
@@ -187,6 +189,49 @@ Private Sub CreateTopQualityNavButton(ByVal wsNav As Worksheet, _
     End With
 
     wsNav.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'" & targetSheetName & "'!A1"
+End Sub
+
+Private Sub AddTopQualityHomeButton(ByVal ws As Worksheet)
+    Dim shp As Shape
+    Dim tgtCell As Range
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    Set tgtCell = ws.Range("E1")
+    leftPos = tgtCell.Left
+    topPos = tgtCell.Top
+    btnWidth = tgtCell.Width * 1.2
+    btnHeight = tgtCell.Height * 1.2
+
+    On Error Resume Next
+    ws.Shapes("HomeBtn").Delete
+    On Error GoTo 0
+
+    Set shp = ws.Shapes.AddShape( _
+        Type:=SHAPE_ROUNDED_RECTANGLE, _
+        Left:=leftPos, _
+        Top:=topPos, _
+        Width:=btnWidth, _
+        Height:=btnHeight)
+
+    With shp
+        .Name = "HomeBtn"
+        .Fill.ForeColor.RGB = RGB(217, 234, 211)
+        .line.ForeColor.RGB = RGB(106, 168, 79)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = "Home"
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 11
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(39, 78, 19)
+            .VerticalAnchor = msoAnchorMiddle
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .MarginLeft = 4
+            .MarginRight = 4
+        End With
+    End With
+
+    ws.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'Dashboard'!A1"
 End Sub
 
 '---------------------------------------------------------
@@ -404,6 +449,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim mappedLabel As String
     Dim usedDownward As Boolean
     Dim mappedBand As Long
+    Dim levelMode As String
 
     On Error GoTo FailSafe
 
@@ -436,6 +482,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     levelCode = InferLevelCodeFromClass(firstClass)
     If levelCode = "" Then Exit Sub
     If UCase$(levelCode) <> UCase$(targetLevel) Then Exit Sub
+    levelMode = GetLevelMode(levelCode)
 
     lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
     subjCount = 0
@@ -443,7 +490,12 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
         If c <> classCol Then
             header = Trim$(CStr(wsSrc.Cells(1, c).value))
             If header <> "" And IsLikelySubjectGradeColumn(header) Then
-                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+                    schemeKey = GetLegacySchemeFromHeader(header)
+                    If schemeKey = "" Then schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                Else
+                    schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                End If
                 subjectName = StripGradeHeaderSuffix(header)
                 If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
@@ -522,7 +574,8 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                     If Not isVrMc And gradeStr <> "" Then
                         mappedLabel = ""
                         usedDownward = False
-                        mappedBand = GetTopBandByDownwardMapEx(gradeStr, subjectSchemeKeys(i), fsbbGroup, mappedLabel, usedDownward)
+                        mappedBand = GetTopBandByDownwardMapEx(gradeStr, subjectSchemeKeys(i), fsbbGroup, mappedLabel, usedDownward, _
+                                                              (UCase$(levelMode) <> LEVEL_MODE_LEGACY_NO_DOWNWARD))
                         Select Case mappedBand
                             Case 1
                                 topPrimaryCount = topPrimaryCount + 1
@@ -685,7 +738,7 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                 "then by the second top-grade column. G3 top 20; G2/G1 top 10; ties included." & vbLf & _
                 "Columns used: G3 uses A1/A2 (A1 then A2); G2 uses 1/2 (1 then 2); " & _
                 "G1 uses A/B (A then B)." & vbLf & _
-                "Downward conversion for mixed-level subjects: " & _
+                "Downward conversion for mixed-level subjects (AUTO_FSBB mode only): " & _
                 "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
                 "G2->G1: 1/2/3=>A, 4=>B. " & _
                 "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
@@ -747,11 +800,77 @@ Private Sub GetTopBandLabels(ByVal groupCode As String, ByRef primaryLbl As Stri
     End Select
 End Sub
 
+Private Function GetLevelMode(ByVal levelCode As String) As String
+    Dim ws As Worksheet
+    Dim r As Long
+    Dim lvl As String, modeVal As String
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        GetLevelMode = LEVEL_MODE_AUTO_FSBB
+        Exit Function
+    End If
+
+    ' Settings table (optional): N2:O20
+    '   N = Level (e.g. S4), O = Mode (AUTO_FSBB / LEGACY_NO_DOWNWARD)
+    For r = 2 To 20
+        lvl = UCase$(Trim$(CStr(ws.Cells(r, "N").value)))
+        modeVal = UCase$(Trim$(CStr(ws.Cells(r, "O").value)))
+        If lvl = UCase$(Trim$(levelCode)) Then
+            If modeVal = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+                GetLevelMode = LEVEL_MODE_LEGACY_NO_DOWNWARD
+            Else
+                GetLevelMode = LEVEL_MODE_AUTO_FSBB
+            End If
+            Exit Function
+        End If
+    Next r
+
+    GetLevelMode = LEVEL_MODE_AUTO_FSBB
+End Function
+
+Private Function GetLegacySchemeFromHeader(ByVal header As String) As String
+    Dim h As String
+    h = UCase$(Replace(Trim$(header), " ", ""))
+
+    ' Legacy tracks:
+    '   - O or O-LEVEL -> G3 equivalent
+    '   - N(A) -> G2 equivalent
+    '   - N(T) -> G1 equivalent
+    If InStr(h, "N(T)") > 0 Then
+        GetLegacySchemeFromHeader = "G1"
+    ElseIf InStr(h, "N(A)") > 0 Then
+        GetLegacySchemeFromHeader = "G2"
+    ElseIf InStr(h, "-O") > 0 Or InStr(h, "(O)") > 0 Or InStr(h, "OLEVEL") > 0 Then
+        GetLegacySchemeFromHeader = "G3"
+    End If
+End Function
+
+Private Function MapGroupLabelForMode(ByVal fsbbGroup As String, ByVal levelMode As String) As String
+    Dim g As String
+    g = UCase$(Trim$(fsbbGroup))
+
+    If UCase$(Trim$(levelMode)) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+        Select Case g
+            Case "G3": MapGroupLabelForMode = "O"
+            Case "G2": MapGroupLabelForMode = "N(A)"
+            Case "G1": MapGroupLabelForMode = "N(T)"
+            Case Else: MapGroupLabelForMode = g
+        End Select
+    Else
+        MapGroupLabelForMode = g
+    End If
+End Function
+
 Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
                                            ByVal sourceScheme As String, _
                                            ByVal targetGroup As String, _
                                            ByRef mappedLabel As String, _
-                                           ByRef usedDownward As Boolean) As Long
+                                           ByRef usedDownward As Boolean, _
+                                           Optional ByVal allowDownward As Boolean = True) As Long
     Dim g As String, src As String, tgt As String
     g = UCase$(Trim$(gradeStr))
     src = UCase$(Trim$(sourceScheme))
@@ -780,7 +899,7 @@ Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
                     GetTopBandByDownwardMapEx = 2
                     mappedLabel = "2"
                 End If
-            ElseIf src = "G3" Then
+            ElseIf src = "G3" And allowDownward Then
                 ' G3 -> G2 mapping: A1/A2/B3->1 ; B4/C5/C6->2 ; D7->3 ; E8->4 ; 9/F9->5
                 If g = "A1" Or g = "A2" Or g = "B3" Then
                     GetTopBandByDownwardMapEx = 1
@@ -802,7 +921,7 @@ Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
                     GetTopBandByDownwardMapEx = 2
                     mappedLabel = "B"
                 End If
-            ElseIf src = "G2" Then
+            ElseIf src = "G2" And allowDownward Then
                 ' G2 -> G1 mapping: 1/2/3->A ; 4->B ; 5->C ; 6->D
                 If g = "1" Or g = "2" Or g = "3" Then
                     GetTopBandByDownwardMapEx = 1
@@ -813,7 +932,7 @@ Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
                     mappedLabel = "B"
                     usedDownward = True
                 End If
-            ElseIf src = "G3" Then
+            ElseIf src = "G3" And allowDownward Then
                 ' G3 -> G1 mapping: A1/A2/B3/B4/C5/C6/D7->A ; E8->B ; 9/F9->C
                 If g = "A1" Or g = "A2" Or g = "B3" Or g = "B4" _
                    Or g = "C5" Or g = "C6" Or g = "D7" Then
@@ -856,7 +975,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long
     Dim groupTotalCount As Long
     Dim fsbbGroup As String
+    Dim displayGroup As String
     Dim groupThresholdPct As Double
+    Dim levelMode As String
 
     On Error GoTo FailSafe
 
@@ -888,6 +1009,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     levelCode = InferLevelCodeFromClass(firstClass)
     If levelCode = "" Then Exit Function
     If UCase$(levelCode) <> UCase$(Trim$(targetLevel)) Then Exit Function
+    levelMode = GetLevelMode(levelCode)
 
     lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
     subjCount = 0
@@ -896,7 +1018,12 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         If c <> classCol Then
             header = Trim$(CStr(wsSrc.Cells(1, c).value))
             If header <> "" And IsLikelySubjectGradeColumn(header) Then
-                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+                    schemeKey = GetLegacySchemeFromHeader(header)
+                    If schemeKey = "" Then schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                Else
+                    schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                End If
                 subjectName = StripGradeHeaderSuffix(header)
                 If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
@@ -1018,7 +1145,8 @@ NextSubject:
             wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
             wsOut.Cells(outRow, 12).value = attemptedSubjects
             wsOut.Cells(outRow, 13).value = vrSubjects
-            wsOut.Cells(outRow, 14).value = fsbbGroup
+            displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
+            wsOut.Cells(outRow, 14).value = displayGroup
 
             If riskBand = "AT RISK" Then
                 wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
