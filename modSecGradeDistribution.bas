@@ -734,20 +734,31 @@ End Function
 
 Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As String)
     Dim explainer As String
+    Dim levelMode As String
 
     wsOut.Range("A1").value = levelCode & " Top Students by Top Grades"
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
-    explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
-                "then by the second top-grade column. G3 top 20; G2/G1 top 10; ties included." & vbLf & _
-                "Columns used: G3 uses A1/A2 (A1 then A2); G2 uses 1/2 (1 then 2); " & _
-                "G1 uses A/B (A then B)." & vbLf & _
-                "Downward conversion for mixed-level subjects (AUTO_FSBB mode only): " & _
-                "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
-                "G2->G1: 1/2/3=>A, 4=>B. " & _
-                "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
-                "Note: Do not use this data for Awards selection."
+    levelMode = GetLevelMode(levelCode)
+    If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+        explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
+                    "then by the second top-grade column. O top 20; N(A)/N(T) top 10; ties included." & vbLf & _
+                    "Columns used: O uses A1/A2 (A1 then A2); N(A) uses 1/2 (1 then 2); " & _
+                    "N(T) uses A/B (A then B)." & vbLf & _
+                    "Legacy mode: downward conversion is NOT applied. Top grades are counted within each subject's own track." & vbLf & _
+                    "Note: Do not use this data for Awards selection."
+    Else
+        explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
+                    "then by the second top-grade column. G3 top 20; G2/G1 top 10; ties included." & vbLf & _
+                    "Columns used: G3 uses A1/A2 (A1 then A2); G2 uses 1/2 (1 then 2); " & _
+                    "G1 uses A/B (A then B)." & vbLf & _
+                    "Downward conversion for mixed-level subjects (AUTO_FSBB mode only): " & _
+                    "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
+                    "G2->G1: 1/2/3=>A, 4=>B. " & _
+                    "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
+                    "Note: Do not use this data for Awards selection."
+    End If
 
     With wsOut.Range("A2:J2")
         .Merge
