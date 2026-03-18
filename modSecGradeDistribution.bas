@@ -2409,25 +2409,23 @@ Private Function ResolveFsbbGroup(ByVal g1Taken As Long, _
                                   ByVal g3Taken As Long, _
                                   ByVal attemptedCount As Long, _
                                   ByVal thresholdPct As Double) As String
-    Dim p1 As Double, p2 As Double, p3 As Double
-
     If attemptedCount <= 0 Then
         ResolveFsbbGroup = ""
         Exit Function
     End If
 
-    p1 = (CDbl(g1Taken) / CDbl(attemptedCount)) * 100#
-    p2 = (CDbl(g2Taken) / CDbl(attemptedCount)) * 100#
-    p3 = (CDbl(g3Taken) / CDbl(attemptedCount)) * 100#
-
-    If p3 >= thresholdPct Then
-        ResolveFsbbGroup = "G3"
-    ElseIf p2 >= thresholdPct Then
-        ResolveFsbbGroup = "G2"
-    ElseIf p1 >= thresholdPct Then
+    ' Rule requested:
+    '   any G1 subject => G1
+    '   else any G2 subject => G2
+    '   else all G3 => G3
+    If g1Taken > 0 Then
         ResolveFsbbGroup = "G1"
+    ElseIf g2Taken > 0 Then
+        ResolveFsbbGroup = "G2"
+    ElseIf g3Taken > 0 Then
+        ResolveFsbbGroup = "G3"
     Else
-        ResolveFsbbGroup = "MIXED"
+        ResolveFsbbGroup = ""
     End If
 End Function
 
