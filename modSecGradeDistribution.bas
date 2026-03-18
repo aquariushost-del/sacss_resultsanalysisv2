@@ -65,6 +65,7 @@ Public Sub BuildSec_TopQualityByLevel()
     Dim recCount As Long
     Dim outRow As Long
     Dim groupThresholdPct As Double
+    Dim levelMode As String
 
     On Error GoTo ErrHandler
 
@@ -74,6 +75,7 @@ Public Sub BuildSec_TopQualityByLevel()
     For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
         Set wsOut = GetOrCreateWorksheet("TopQual_" & CStr(lvl))
         PrepareTopQualitySheet wsOut, CStr(lvl)
+        levelMode = GetLevelMode(CStr(lvl))
 
         recCount = 0
         For Each ws In wb.Worksheets
@@ -81,9 +83,9 @@ Public Sub BuildSec_TopQualityByLevel()
         Next ws
 
         outRow = 5
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G3", 20, recs, recCount)
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G2", 10, recs, recCount)
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G1", 10, recs, recCount)
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G3", 20, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G2", 10, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G1", 10, recs, recCount, levelMode)
 
         FormatTopQualitySheet wsOut, outRow - 1
         AddTopQualityHomeButton wsOut
@@ -630,15 +632,18 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
                                       ByVal groupCode As String, _
                                       ByVal topN As Long, _
                                       ByRef recs() As TopStudentRec, _
-                                      ByVal recCount As Long) As Long
+                                      ByVal recCount As Long, _
+                                      ByVal levelMode As String) As Long
     Dim idx() As Long
     Dim idxCount As Long
     Dim i As Long, j As Long, tmp As Long
     Dim cutoffTop As Long, cutoffPrimary As Long, cutoffSecondary As Long
     Dim r As Long
     Dim primaryLbl As String, secondaryLbl As String
+    Dim displayGroup As String
 
-    wsOut.Cells(startRow, 1).value = groupCode & " Top Students (Top " & topN & ", ties included)"
+    displayGroup = MapGroupLabelForMode(groupCode, levelMode)
+    wsOut.Cells(startRow, 1).value = displayGroup & " Top Students (Top " & topN & ", ties included)"
     wsOut.Cells(startRow, 1).Font.Bold = True
     wsOut.Cells(startRow, 1).Font.Color = RGB(79, 33, 33)
     startRow = startRow + 1
@@ -715,7 +720,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 2).value = recs(idx(i)).ClassName
         wsOut.Cells(r, 3).value = recs(idx(i)).RegNo
         wsOut.Cells(r, 4).value = recs(idx(i)).StudentName
-        wsOut.Cells(r, 5).value = recs(idx(i)).GroupCode
+        wsOut.Cells(r, 5).value = MapGroupLabelForMode(recs(idx(i)).GroupCode, levelMode)
         wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
         wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
         wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
