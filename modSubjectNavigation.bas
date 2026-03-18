@@ -281,7 +281,7 @@ Private Function IsSubjectAnalysisSheet(ByVal nm As String) As Boolean
 End Function
 
 '---------------------------------------------------------
-' Create HOME button at P1 on a specific sheet
+' Create HOME button at O1 on a specific sheet
 '---------------------------------------------------------
 Private Sub AddHomeButton(ws As Worksheet)
     Dim shp As Shape
@@ -289,8 +289,8 @@ Private Sub AddHomeButton(ws As Worksheet)
     Dim leftPos As Double, topPos As Double
     Dim btnWidth As Double, btnHeight As Double
     
-    ' Target location: P1
-    Set tgtCell = ws.Range("P1")
+    ' Target location: O1
+    Set tgtCell = ws.Range("O1")
     leftPos = tgtCell.Left
     topPos = tgtCell.Top
     btnWidth = tgtCell.Width * 1.2
