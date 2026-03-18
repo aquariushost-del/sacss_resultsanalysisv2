@@ -1,50 +1,53 @@
-Attribute VB_Name = "modIpSubjectNavigation"
+Attribute VB_Name = "modSubjectNavigation"
 Option Explicit
 
 '=========================================================
-' Module: modIpSubjectNavigation
+' Module: modSubjectNavigation
 '
 ' PURPOSE:
-'   Build an IP navigation panel on "Dashboard" with
-'   rounded-rectangle buttons linking to each IP Subject
-'   Analysis sheet, ordered Y1 � Y4.
+'   Build a navigation panel on "Dashboard" with rounded-
+'   rectangle buttons linking to each SEC Subject Analysis
+'   sheet, ordered S1 � S4.
 '
 ' ASSUMPTIONS:
-'   - IP analysis sheet names start with:
-'       Y1_Subj Analysis_...
-'       Y2_Subj Analysis_...
-'       Y3_Subj Analysis_...
-'       Y4_Subj Analysis_...
-'
+'   - Analysis sheet names start with:
+'       S1_Subj Analysis_...
+'       S2_Subj Analysis_...
+'       S3_Subj Analysis_...
+'       S4_Subj Analysis_...
 '   - There is a sheet called "Dashboard".
-'   - Navigation starts from Dashboard!M3.
+'   - Navigation starts from Dashboard!G3.
 '
 ' OUTPUT (example):
-'   Y1 Subject Analysis (IP)
-'     [Y1_Subj Analysis_Y1_WA1_2025]
-'     [Y1_Subj Analysis_Y1_WA2_2025]
+'   S1 Subject Analysis
+'     [S1_Subj Analysis_S1_WA1_2025]
+'     [S1_Subj Analysis_S1_WA2_2025]
 '
-'   Y2 Subject Analysis (IP)
+'   S2 Subject Analysis
+'     [S2_Subj Analysis_S2_WA1_2025]
 '     ...
-'
-' HOME BUTTONS (IP only):
-'   - Each IP Subject Analysis sheet (Y1�Y4) gets a small
-'     rounded "Home" button at P1 linking back to Dashboard.
 '=========================================================
 
 Private Const NAV_SHEET_NAME As String = "Dashboard"
-Private Const IP_NAV_START_CELL As String = "M3"
-Private Const IP_NAV_BTN_PREFIX As String = "Nav_IP_"
-
+Private Const NAV_START_CELL As String = "G3"
+Private Const NAV_BTN_PREFIX As String = "Nav_Subj_"
 Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5   ' msoShapeRoundedRectangle
 
 '---------------------------------------------------------
 ' PUBLIC ENTRY POINT
-'   Run this to build IP navigation & IP home buttons
 '---------------------------------------------------------
-Public Sub BuildIpSubjectAnalysisNavigation()
+Public Sub BuildSubjectAnalysisNavigation()
     Dim wb As Workbook
     Dim wsNav As Worksheet
+    Dim startCell As Range
+    Dim startRow As Long, startCol As Long
+    
+    Dim levelDict As Object
+    Dim lvl As Variant
+    Dim ws As Worksheet
+    
+    Dim arrNames() As String
+    Dim i As Long
     
     Set wb = ThisWorkbook
     
@@ -58,41 +61,14 @@ Public Sub BuildIpSubjectAnalysisNavigation()
         Exit Sub
     End If
     
-    '--- Build IP navigation (Y1�Y4) in purple, from M3
-    BuildIpNavigation wsNav
-    
-    '--- Build / refresh HOME buttons only on IP Subject Analysis sheets
-    BuildAllIpHomeButtons
-    
-    wsNav.Activate
-    wsNav.Range(IP_NAV_START_CELL).Select
-    'MsgBox "IP Subject Analysis navigation updated on '" & NAV_SHEET_NAME & "'.", vbInformation
-End Sub
-
-'=========================================================
-' IP NAVIGATION (Y1�Y4, purple, starts at M3)
-'=========================================================
-Private Sub BuildIpNavigation(ByVal wsNav As Worksheet)
-    Dim wb As Workbook
-    Dim startCell As Range
-    Dim startRow As Long, startCol As Long
-    
-    Dim levelDict As Object
-    Dim lvl As Variant
-    Dim ws As Worksheet
-    
-    Dim arrNames() As String
-    Dim i As Long
-    
-    Set wb = ThisWorkbook
-    Set startCell = wsNav.Range(IP_NAV_START_CELL)
+    Set startCell = wsNav.Range(NAV_START_CELL)
     startRow = startCell.Row
     startCol = startCell.Column
     
-    '--- Collect IP analysis sheets by level (Y1..Y4)
+    '--- Collect analysis sheets by level (S1..S5)
     Set levelDict = CreateObject("Scripting.Dictionary")
     
-    For Each lvl In Array("Y1", "Y2", "Y3", "Y4")
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
         Dim tmpCol As Collection
         Set tmpCol = New Collection
         levelDict.Add CStr(lvl), tmpCol
@@ -100,7 +76,7 @@ Private Sub BuildIpNavigation(ByVal wsNav As Worksheet)
     
     For Each ws In wb.Worksheets
         Dim levelTag As String
-        levelTag = Left$(ws.Name, 2)  ' "Y1", "Y2", etc.
+        levelTag = Left$(ws.Name, 2)  ' "S1", "S2", etc.
         
         If levelDict.Exists(levelTag) Then
             ' Check that this is a Subject Analysis sheet
@@ -110,19 +86,19 @@ Private Sub BuildIpNavigation(ByVal wsNav As Worksheet)
         End If
     Next ws
     
-    '--- Clear previous IP nav area & old IP buttons
-    ClearOldIpNavigation wsNav, startRow, startCol, IP_NAV_BTN_PREFIX, 6
+    '--- Clear previous nav area & old buttons
+    ClearOldNavigation wsNav, startRow, startCol
     
-    '--- Build IP navigation by level, always in order Y1�Y4
+    '--- Build navigation by level, always in order S1�S4
     Dim curRow As Long
     curRow = startRow
     
-    For Each lvl In Array("Y1", "Y2", "Y3", "Y4")
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
         Dim colNames As Collection
         Set colNames = levelDict(CStr(lvl))
         
-        ' Header row for this IP level
-        wsNav.Cells(curRow, startCol).value = lvl & " Subject Analysis (IP)"
+        ' Header row for this level
+        wsNav.Cells(curRow, startCol).value = lvl & " Subject Analysis"
         With wsNav.Cells(curRow, startCol)
             .Font.Bold = True
             .Font.Size = 12
@@ -131,7 +107,7 @@ Private Sub BuildIpNavigation(ByVal wsNav As Worksheet)
         
         If colNames.count = 0 Then
             ' No analysis yet � optional message
-            wsNav.Cells(curRow, startCol).value = "(No IP subject analysis sheets found.)"
+            wsNav.Cells(curRow, startCol).value = "(No subject analysis sheets found.)"
             wsNav.Cells(curRow, startCol).Font.Italic = True
             curRow = curRow + 2
         Else
@@ -142,71 +118,60 @@ Private Sub BuildIpNavigation(ByVal wsNav As Worksheet)
             Next i
             SortStringArray arrNames
             
-            ' Create one purple button per IP sheet
+            ' Create one button per sheet
             For i = LBound(arrNames) To UBound(arrNames)
-                CreateIpNavButton wsNav, _
-                                  arrNames(i), _
-                                  curRow, _
-                                  startCol, _
-                                  IP_NAV_BTN_PREFIX, _
-                                  RGB(112, 48, 160), _
-                                  RGB(74, 38, 115)
+                CreateNavButton wsNav, arrNames(i), curRow, startCol
                 curRow = curRow + 2   ' add space between buttons
             Next i
             
             curRow = curRow + 1      ' extra blank line between levels
         End If
     Next lvl
+    
+    ' Build / refresh HOME buttons on all Subject Analysis sheets
+    BuildAllHomeButtons
+    
+    wsNav.Activate
+    wsNav.Range(NAV_START_CELL).Select
+    'MsgBox "Subject Analysis navigation updated on '" & NAV_SHEET_NAME & "'.", vbInformation
 End Sub
 
-'=========================================================
-' CORE HELPERS (IP)
-'=========================================================
-
 '---------------------------------------------------------
-' Clear old IP nav shapes and text around start cell
-'   - widthCols: how many columns to clear from startCol
+' Clear old nav shapes and text around start cell
 '---------------------------------------------------------
-Private Sub ClearOldIpNavigation(ByVal wsNav As Worksheet, _
-                                 ByVal startRow As Long, _
-                                 ByVal startCol As Long, _
-                                 ByVal shapePrefix As String, _
-                                 ByVal widthCols As Long)
+Private Sub ClearOldNavigation(ByVal wsNav As Worksheet, _
+                               ByVal startRow As Long, _
+                               ByVal startCol As Long)
     Dim shp As Shape
     Dim lastRow As Long, lastCol As Long
     Dim k As Long
     
-    ' Define a reasonable area to clear (e.g. 200 rows)
+    ' Define a reasonable area to clear (e.g. 200 rows, 6 columns)
     lastRow = startRow + 200
-    lastCol = startCol + widthCols - 1
+    lastCol = startCol + 5
     
     With wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(lastRow, lastCol))
         .ClearContents
         .ClearFormats
     End With
     
-    ' Delete previous IP navigation buttons for this block (by name prefix)
+    ' Delete previous navigation buttons (by name prefix)
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
-        If Left$(shp.Name, Len(shapePrefix)) = shapePrefix Then
+        If Left$(shp.Name, Len(NAV_BTN_PREFIX)) = NAV_BTN_PREFIX Then
             shp.Delete
         End If
     Next k
 End Sub
 
 '---------------------------------------------------------
-' Create a rounded-rectangle IP button linking to a sheet
+' Create a rounded-rectangle button linking to a sheet
 ' rowNum / firstCol control its position
-'
-' colourFillRGB / colourLineRGB control the palette
 '---------------------------------------------------------
-Private Sub CreateIpNavButton(ByVal wsNav As Worksheet, _
-                              ByVal sheetName As String, _
-                              ByVal rowNum As Long, _
-                              ByVal firstCol As Long, _
-                              ByVal shapePrefix As String, _
-                              ByVal colourFillRGB As Long, _
-                              ByVal colourLineRGB As Long)
+Private Sub CreateNavButton(ByVal wsNav As Worksheet, _
+                            ByVal sheetName As String, _
+                            ByVal rowNum As Long, _
+                            ByVal firstCol As Long)
     Dim wb As Workbook
     Dim shp As Shape
     Dim leftPos As Double, topPos As Double
@@ -236,12 +201,12 @@ Private Sub CreateIpNavButton(ByVal wsNav As Worksheet, _
         Height:=btnHeight)
     
     With shp
-        .Name = shapePrefix & sheetName
+        .Name = NAV_BTN_PREFIX & sheetName
         
-        ' Fill & border (purple theme)
-        .Fill.ForeColor.RGB = colourFillRGB
+        ' Fill & border
+        .Fill.ForeColor.RGB = RGB(79, 129, 189)   ' soft blue
         .Fill.Transparency = 0#
-        .line.ForeColor.RGB = colourLineRGB
+        .line.ForeColor.RGB = RGB(55, 86, 130)
         .line.Weight = 1.5
         
         ' Text formatting
@@ -284,42 +249,41 @@ Private Sub SortStringArray(ByRef arr() As String)
 End Sub
 
 '=========================================================
-' IP HOME BUTTON ENGINE � adds Home button to all
-' Y1/Y2/Y3/Y4 Subject Analysis sheets
+' HOME BUTTON ENGINE � adds ?? Home button to all
+' S1/S2/S3/S4/S5 Subject Analysis sheets
 '=========================================================
-Public Sub BuildAllIpHomeButtons()
+Public Sub BuildAllHomeButtons()
     Dim wb As Workbook
     Dim ws As Worksheet
     
     Set wb = ThisWorkbook
     
     For Each ws In wb.Worksheets
-        If IsIpSubjectAnalysisSheet(ws.Name) Then
-            AddIpHomeButton ws
+        If IsSubjectAnalysisSheet(ws.Name) Then
+            AddHomeButton ws
         End If
     Next ws
 End Sub
 
 '---------------------------------------------------------
-' Detect IP Subject Analysis sheets only
-'   - Y1..Y4_Subj Analysis_...
+' Detect Subject Analysis sheets
 '---------------------------------------------------------
-Private Function IsIpSubjectAnalysisSheet(ByVal nm As String) As Boolean
+Private Function IsSubjectAnalysisSheet(ByVal nm As String) As Boolean
     Dim lvl As String
-    lvl = Left$(nm, 2)   ' Y1, Y2, Y3, Y4
+    lvl = Left$(nm, 2)   ' S1, S2, S3, S4
     
-    If (lvl = "Y1" Or lvl = "Y2" Or lvl = "Y3" Or lvl = "Y4") _
+    If (lvl = "S1" Or lvl = "S2" Or lvl = "S3" Or lvl = "S4" Or lvl = "S5") _
        And InStr(1, nm, "_Subj Analysis_", vbTextCompare) > 0 Then
-        IsIpSubjectAnalysisSheet = True
+        IsSubjectAnalysisSheet = True
     Else
-        IsIpSubjectAnalysisSheet = False
+        IsSubjectAnalysisSheet = False
     End If
 End Function
 
 '---------------------------------------------------------
-' Create HOME button at P1 on a specific IP sheet
+' Create HOME button at P1 on a specific sheet
 '---------------------------------------------------------
-Private Sub AddIpHomeButton(ws As Worksheet)
+Private Sub AddHomeButton(ws As Worksheet)
     Dim shp As Shape
     Dim tgtCell As Range
     Dim leftPos As Double, topPos As Double
@@ -332,9 +296,9 @@ Private Sub AddIpHomeButton(ws As Worksheet)
     btnWidth = tgtCell.Width * 1.2
     btnHeight = tgtCell.Height * 1.2
     
-    ' Remove existing Home button if any (IP)
+    ' Remove existing Home button if any
     On Error Resume Next
-    ws.Shapes("HomeBtn_IP").Delete
+    ws.Shapes("HomeBtn").Delete
     On Error GoTo 0
     
     ' Build shape
@@ -346,11 +310,11 @@ Private Sub AddIpHomeButton(ws As Worksheet)
         Height:=btnHeight)
     
     With shp
-        .Name = "HomeBtn_IP"
+        .Name = "HomeBtn"
         
-        ' Visual style (purple to match IP nav)
-        .Fill.ForeColor.RGB = RGB(112, 48, 160)
-        .line.ForeColor.RGB = RGB(74, 38, 115)
+        ' Visual style (same palette as nav buttons)
+        .Fill.ForeColor.RGB = RGB(79, 129, 189)
+        .line.ForeColor.RGB = RGB(55, 86, 130)
         .line.Weight = 1.5
         
         With .TextFrame2
