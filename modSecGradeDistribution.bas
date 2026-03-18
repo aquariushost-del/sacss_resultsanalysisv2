@@ -7,6 +7,8 @@ Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
 Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
+Private Const TOP_NAV_START_CELL As String = "T3"
+Private Const TOP_NAV_BTN_PREFIX As String = "Nav_TopQual_"
 
 Private Type TopStudentRec
     LevelCode As String
@@ -83,11 +85,106 @@ Public Sub BuildSec_TopQualityByLevel()
         AddAtRiskHomeButton wsOut
     Next lvl
 
+    BuildTopQualityNavigation
+
     MsgBox "Top quality sheets built: TopQual_S1 to TopQual_S5.", vbInformation
     Exit Sub
 
 ErrHandler:
     MsgBox "Error in BuildSec_TopQualityByLevel: " & Err.Description, vbCritical
+End Sub
+
+Public Sub BuildTopQualityNavigation()
+    Dim wsNav As Worksheet
+    Dim startCell As Range
+    Dim startRow As Long, startCol As Long
+    Dim rowPtr As Long
+    Dim lvl As Variant
+    Dim sheetName As String
+    Dim shp As Shape
+    Dim k As Long
+
+    On Error GoTo ErrHandler
+
+    On Error Resume Next
+    Set wsNav = ThisWorkbook.Worksheets(ATRISK_NAV_SHEET_NAME)
+    On Error GoTo ErrHandler
+    If wsNav Is Nothing Then Exit Sub
+
+    Set startCell = wsNav.Range(TOP_NAV_START_CELL)
+    startRow = startCell.Row
+    startCol = startCell.Column
+
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 5)).Clear
+    For k = wsNav.Shapes.count To 1 Step -1
+        Set shp = wsNav.Shapes(k)
+        If Left$(shp.Name, Len(TOP_NAV_BTN_PREFIX)) = TOP_NAV_BTN_PREFIX Then shp.Delete
+    Next k
+
+    wsNav.Cells(startRow, startCol).value = "Top Students Menu"
+    wsNav.Cells(startRow, startCol).Font.Bold = True
+    wsNav.Cells(startRow, startCol).Font.Size = 12
+    wsNav.Cells(startRow, startCol).Font.Color = RGB(31, 73, 125)
+    rowPtr = startRow + 1
+
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
+        sheetName = "TopQual_" & CStr(lvl)
+        If WorksheetExistsByName(sheetName) Then
+            CreateTopQualityNavButton wsNav, sheetName, CStr(lvl) & " Top Students", rowPtr, startCol
+        Else
+            wsNav.Cells(rowPtr, startCol).value = CStr(lvl) & " Top Students (not built)"
+            wsNav.Cells(rowPtr, startCol).Font.Italic = True
+        End If
+        rowPtr = rowPtr + 2
+    Next lvl
+    Exit Sub
+
+ErrHandler:
+    ' Silent fallback
+End Sub
+
+Private Sub CreateTopQualityNavButton(ByVal wsNav As Worksheet, _
+                                      ByVal targetSheetName As String, _
+                                      ByVal displayText As String, _
+                                      ByVal rowNum As Long, _
+                                      ByVal firstCol As Long)
+    Dim shp As Shape
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    leftPos = wsNav.Cells(rowNum, firstCol).Left
+    topPos = wsNav.Cells(rowNum, firstCol).Top
+    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
+    btnHeight = wsNav.Rows(rowNum).Height * 1.3
+
+    Set shp = wsNav.Shapes.AddShape( _
+        Type:=SHAPE_ROUNDED_RECTANGLE, _
+        Left:=leftPos, _
+        Top:=topPos, _
+        Width:=btnWidth, _
+        Height:=btnHeight)
+
+    With shp
+        .Name = TOP_NAV_BTN_PREFIX & targetSheetName
+        .Fill.ForeColor.RGB = RGB(197, 217, 241)
+        .Fill.Transparency = 0#
+        .line.ForeColor.RGB = RGB(84, 141, 212)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = displayText
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 10.5
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(31, 73, 125)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+            .MarginLeft = 6
+            .MarginRight = 6
+            .MarginTop = 3
+            .MarginBottom = 3
+        End With
+    End With
+
+    wsNav.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'" & targetSheetName & "'!A1"
 End Sub
 
 '---------------------------------------------------------
@@ -509,6 +606,9 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     wsOut.Cells(startRow, 3).value = "RegNo"
     wsOut.Cells(startRow, 4).value = "Name"
     wsOut.Cells(startRow, 5).value = "Group"
+    wsOut.Cells(startRow, 6).NumberFormat = "@"
+    wsOut.Cells(startRow, 7).NumberFormat = "@"
+    wsOut.Cells(startRow, 8).NumberFormat = "@"
     wsOut.Cells(startRow, 6).value = primaryLbl & "/" & secondaryLbl
     wsOut.Cells(startRow, 7).value = primaryLbl
     wsOut.Cells(startRow, 8).value = secondaryLbl
@@ -553,10 +653,10 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
-    explainer = "How ranking works: Top Grades first, then Top Band 1, then Top Band 2. " & _
-                "G3 top 20; G2/G1 top 10; ties included." & vbLf & _
-                "Top bands: G3 uses A1 (Band1), A2 (Band2); G2 uses 1 (Band1), 2 (Band2); " & _
-                "G1 uses A (Band1), B (Band2)." & vbLf & _
+    explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
+                "then by the second top-grade column. G3 top 20; G2/G1 top 10; ties included." & vbLf & _
+                "Columns used: G3 uses A1/A2 (A1 then A2); G2 uses 1/2 (1 then 2); " & _
+                "G1 uses A/B (A then B)." & vbLf & _
                 "Downward conversion for mixed-level subjects: " & _
                 "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
                 "G2->G1: 1/2/3=>A, 4=>B. " & _
