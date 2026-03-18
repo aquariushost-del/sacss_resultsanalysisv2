@@ -44,6 +44,7 @@ Public Sub BuildSec_AtRiskSummary()
     Dim wb As Workbook
     Dim ws As Worksheet
     Dim wsOut As Worksheet
+    Dim lvl As Variant
     Dim outRow As Long
     Dim addedRows As Long
     Dim threshold As Long
@@ -53,57 +54,28 @@ Public Sub BuildSec_AtRiskSummary()
     Set wb = ThisWorkbook
     threshold = GetAtRiskFailThreshold()
 
-    On Error Resume Next
-    Set wsOut = wb.Worksheets("AtRisk_SEC")
-    On Error GoTo ErrHandler
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
+        Set wsOut = GetOrCreateWorksheet("AtRisk_" & CStr(lvl))
+        PrepareAtRiskSheet wsOut, CStr(lvl), threshold
 
-    If wsOut Is Nothing Then
-        Set wsOut = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.count))
-        wsOut.Name = "AtRisk_SEC"
-    Else
-        wsOut.Cells.Clear
-    End If
+        outRow = 5
+        For Each ws In wb.Worksheets
+            addedRows = AppendSecAtRiskFromSourceSheet(ws, wsOut, outRow, threshold, CStr(lvl))
+            If addedRows > 0 Then outRow = outRow + addedRows
+        Next ws
 
-    wsOut.Range("A1").value = "SEC Students At Risk Summary"
-    wsOut.Range("A1").Font.Bold = True
-    wsOut.Range("A1").Font.Size = 14
+        If outRow = 5 Then
+            wsOut.Cells(outRow, 1).value = "No eligible SEC result rows found for " & CStr(lvl) & "."
+            outRow = outRow + 1
+        End If
 
-    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold
-    wsOut.Range("A2").Font.Italic = True
+        FinalizeAtRiskSheet wsOut, outRow - 1
+    Next lvl
 
-    wsOut.Cells(4, 1).value = "Level"
-    wsOut.Cells(4, 2).value = "Source Sheet"
-    wsOut.Cells(4, 3).value = "Class"
-    wsOut.Cells(4, 4).value = "RegNo"
-    wsOut.Cells(4, 5).value = "Name"
-    wsOut.Cells(4, 6).value = "Subjects Attempted"
-    wsOut.Cells(4, 7).value = "Subjects Passed"
-    wsOut.Cells(4, 8).value = "Subjects Failed"
-    wsOut.Cells(4, 9).value = "Risk Band"
-    wsOut.Rows(4).Font.Bold = True
+    wb.Worksheets("AtRisk_S1").Activate
+    wb.Worksheets("AtRisk_S1").Range("A1").Select
 
-    outRow = 5
-    For Each ws In wb.Worksheets
-        addedRows = AppendSecAtRiskFromSourceSheet(ws, wsOut, outRow, threshold)
-        If addedRows > 0 Then outRow = outRow + addedRows
-    Next ws
-
-    If outRow = 5 Then
-        wsOut.Cells(outRow, 1).value = "No eligible SEC result rows found."
-        outRow = outRow + 1
-    End If
-
-    wsOut.Columns("A:I").AutoFit
-    wsOut.Columns("A").ColumnWidth = 8
-    wsOut.Columns("B").ColumnWidth = 24
-    wsOut.Columns("C").ColumnWidth = 10
-    wsOut.Columns("D").ColumnWidth = 10
-    wsOut.Columns("E").ColumnWidth = 24
-
-    wsOut.Activate
-    wsOut.Range("A1").Select
-
-    MsgBox "SEC at-risk summary built on sheet 'AtRisk_SEC'.", vbInformation
+    MsgBox "SEC at-risk sheets built: AtRisk_S1 to AtRisk_S5.", vbInformation
     Exit Sub
 
 ErrHandler:
@@ -254,11 +226,13 @@ End Sub
 Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                                                 ByVal wsOut As Worksheet, _
                                                 ByVal startOutRow As Long, _
-                                                ByVal atRiskFailThreshold As Long) As Long
+                                                ByVal atRiskFailThreshold As Long, _
+                                                ByVal targetLevel As String) As Long
     Dim classCol As Long, nameCol As Long, regCol As Long
     Dim lastRow As Long, lastCol As Long
     Dim firstClass As String, levelCode As String
     Dim subjectCols() As Long
+    Dim subjectNames() As String
     Dim subjectSchemeKeys() As String
     Dim subjCount As Long
     Dim c As Long, r As Long, i As Long
@@ -267,7 +241,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim gradeStr As String
     Dim attemptedCount As Long, passCount As Long, failCount As Long
     Dim outRow As Long
-    Dim riskBand As String
+    Dim riskBand As String, failedSubjects As String
 
     On Error GoTo FailSafe
 
@@ -298,6 +272,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 
     levelCode = InferLevelCodeFromClass(firstClass)
     If levelCode = "" Then Exit Function
+    If UCase$(levelCode) <> UCase$(Trim$(targetLevel)) Then Exit Function
 
     lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
     subjCount = 0
@@ -310,8 +285,10 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 If schemeKey <> "" Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
+                    ReDim Preserve subjectNames(1 To subjCount)
                     ReDim Preserve subjectSchemeKeys(1 To subjCount)
                     subjectCols(subjCount) = c
+                    subjectNames(subjCount) = StripGradeHeaderSuffix(header)
                     subjectSchemeKeys(subjCount) = schemeKey
                 End If
             End If
@@ -342,6 +319,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         attemptedCount = 0
         passCount = 0
         failCount = 0
+        failedSubjects = ""
 
         For i = 1 To subjCount
             gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
@@ -350,6 +328,8 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 attemptedCount = attemptedCount + 1
                 If IsFailGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
                     failCount = failCount + 1
+                    If failedSubjects <> "" Then failedSubjects = failedSubjects & ", "
+                    failedSubjects = failedSubjects & subjectNames(i)
                 Else
                     passCount = passCount + 1
                 End If
@@ -373,16 +353,18 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             wsOut.Cells(outRow, 6).value = attemptedCount
             wsOut.Cells(outRow, 7).value = passCount
             wsOut.Cells(outRow, 8).value = failCount
-            wsOut.Cells(outRow, 9).value = riskBand
+            wsOut.Cells(outRow, 9).value = failedSubjects
+            wsOut.Cells(outRow, 10).value = riskBand
+            wsOut.Cells(outRow, 11).value = RiskBandRank(riskBand)
 
             If riskBand = "AT RISK" Then
-                wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
-                wsOut.Cells(outRow, 9).Font.Color = RGB(192, 0, 0)
-                wsOut.Cells(outRow, 9).Font.Bold = True
+                wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 10)).Interior.Color = RGB(255, 230, 230)
+                wsOut.Cells(outRow, 10).Font.Color = RGB(192, 0, 0)
+                wsOut.Cells(outRow, 10).Font.Bold = True
             ElseIf riskBand = "MONITOR" Then
-                wsOut.Cells(outRow, 9).Font.Color = RGB(156, 101, 0)
+                wsOut.Cells(outRow, 10).Font.Color = RGB(156, 101, 0)
             Else
-                wsOut.Cells(outRow, 9).Font.Color = RGB(0, 97, 0)
+                wsOut.Cells(outRow, 10).Font.Color = RGB(0, 97, 0)
             End If
 
             outRow = outRow + 1
@@ -397,6 +379,66 @@ NextStudent:
 FailSafe:
     AppendSecAtRiskFromSourceSheet = 0
 End Function
+
+Private Function GetOrCreateWorksheet(ByVal sheetName As String) As Worksheet
+    Dim ws As Worksheet
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.count))
+        ws.Name = sheetName
+    Else
+        ws.Cells.Clear
+    End If
+
+    Set GetOrCreateWorksheet = ws
+End Function
+
+Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As String, ByVal threshold As Long)
+    wsOut.Range("A1").value = levelCode & " Students At Risk"
+    wsOut.Range("A1").Font.Bold = True
+    wsOut.Range("A1").Font.Size = 14
+
+    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & " (VR excluded)"
+    wsOut.Range("A2").Font.Italic = True
+
+    wsOut.Cells(4, 1).value = "Level"
+    wsOut.Cells(4, 2).value = "Source Sheet"
+    wsOut.Cells(4, 3).value = "Class"
+    wsOut.Cells(4, 4).value = "RegNo"
+    wsOut.Cells(4, 5).value = "Name"
+    wsOut.Cells(4, 6).value = "Subjects Attempted"
+    wsOut.Cells(4, 7).value = "Subjects Passed"
+    wsOut.Cells(4, 8).value = "Subjects Failed"
+    wsOut.Cells(4, 9).value = "Failed Subjects"
+    wsOut.Cells(4, 10).value = "Risk Band"
+    wsOut.Cells(4, 11).value = "SortKey"
+    wsOut.Rows(4).Font.Bold = True
+End Sub
+
+Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
+    Dim sortRange As Range
+
+    If lastRow >= 5 Then
+        Set sortRange = wsOut.Range("A4:K" & lastRow)
+        sortRange.Sort Key1:=wsOut.Range("K5"), Order1:=xlAscending, _
+                       Key2:=wsOut.Range("H5"), Order2:=xlDescending, _
+                       Key3:=wsOut.Range("E5"), Order3:=xlAscending, _
+                       Header:=xlYes
+    End If
+
+    wsOut.Columns("A:J").AutoFit
+    wsOut.Columns("A").ColumnWidth = 8
+    wsOut.Columns("B").ColumnWidth = 24
+    wsOut.Columns("C").ColumnWidth = 10
+    wsOut.Columns("D").ColumnWidth = 10
+    wsOut.Columns("E").ColumnWidth = 24
+    wsOut.Columns("I").ColumnWidth = 40
+    wsOut.Columns("K").EntireColumn.Hidden = True
+End Sub
 
 '---------------------------------------------------------
 ' ENGINE - BUILD ONE SUBJECT TABLE + CHART
@@ -934,7 +976,7 @@ Private Function NormalizeGradeForScheme(ByVal gradeRaw As String, ByVal schemeK
     Dim g As String
     g = UCase$(Trim$(gradeRaw))
 
-    If g = "-" Or g = "AB" Then g = ""
+    If g = "-" Or g = "AB" Or g = "VR" Then g = ""
 
     Select Case UCase$(schemeKey)
         Case "G3"
@@ -1217,6 +1259,17 @@ Private Function IsFailGradeByScheme(ByVal gradeStr As String, ByVal schemeKey A
             IsFailGradeByScheme = (g = "E")
         Case Else
             IsFailGradeByScheme = False
+    End Select
+End Function
+
+Private Function RiskBandRank(ByVal riskBand As String) As Long
+    Select Case UCase$(Trim$(riskBand))
+        Case "AT RISK"
+            RiskBandRank = 1
+        Case "MONITOR"
+            RiskBandRank = 2
+        Case Else
+            RiskBandRank = 3
     End Select
 End Function
 
