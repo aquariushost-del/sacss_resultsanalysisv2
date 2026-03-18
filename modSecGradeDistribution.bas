@@ -8,6 +8,15 @@ Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
 Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
 
+Private Type TopStudentRec
+    LevelCode As String
+    ClassName As String
+    RegNo As String
+    StudentName As String
+    GroupCode As String
+    TopCount As Long
+End Type
+
 '=========================================================
 ' Module: modSecGradeDistribution
 '
@@ -38,6 +47,45 @@ Public Sub BuildAllSec_SubjectAnalysis()
 
 ErrHandler:
     MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
+End Sub
+
+Public Sub BuildSec_TopQualityByLevel()
+    Dim wb As Workbook
+    Dim ws As Worksheet, wsOut As Worksheet
+    Dim lvl As Variant
+    Dim recs() As TopStudentRec
+    Dim recCount As Long
+    Dim outRow As Long
+    Dim groupThresholdPct As Double
+
+    On Error GoTo ErrHandler
+
+    Set wb = ThisWorkbook
+    groupThresholdPct = GetGroupThresholdPercent()
+
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
+        Set wsOut = GetOrCreateWorksheet("TopQual_" & CStr(lvl))
+        PrepareTopQualitySheet wsOut, CStr(lvl)
+
+        recCount = 0
+        For Each ws In wb.Worksheets
+            AppendTopQualityFromSourceSheet ws, CStr(lvl), recs, recCount, groupThresholdPct
+        Next ws
+
+        outRow = 5
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G3", 20, recs, recCount)
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G2", 10, recs, recCount)
+        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G1", 10, recs, recCount)
+
+        FormatTopQualitySheet wsOut, outRow - 1
+        AddAtRiskHomeButton wsOut
+    Next lvl
+
+    MsgBox "Top quality sheets built: TopQual_S1 to TopQual_S5.", vbInformation
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Error in BuildSec_TopQualityByLevel: " & Err.Description, vbCritical
 End Sub
 
 '---------------------------------------------------------
@@ -229,6 +277,263 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
 
 ErrHandler:
     ' Skip broken sheets and continue with the rest.
+End Sub
+
+Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
+                                            ByVal targetLevel As String, _
+                                            ByRef recs() As TopStudentRec, _
+                                            ByRef recCount As Long, _
+                                            ByVal groupThresholdPct As Double)
+    Dim classCol As Long, nameCol As Long, regCol As Long
+    Dim lastRow As Long, lastCol As Long
+    Dim firstClass As String, levelCode As String
+    Dim subjectCols() As Long, subjectNames() As String, subjectSchemeKeys() As String, subjectScoreCols() As Long
+    Dim subjCount As Long
+    Dim c As Long, r As Long, i As Long
+    Dim header As String, schemeKey As String, subjectName As String
+    Dim className As String, studentName As String, regNo As String
+    Dim rawGrade As String, rawScore As String, gradeStr As String
+    Dim isVrMc As Boolean
+    Dim topCount As Long
+    Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long, groupTotalCount As Long
+    Dim fsbbGroup As String
+
+    On Error GoTo FailSafe
+
+    If LCase$(wsSrc.Name) Like "*settings*" _
+       Or LCase$(wsSrc.Name) Like "*config*" _
+       Or LCase$(wsSrc.Name) Like "*menu*" _
+       Or LCase$(wsSrc.Name) Like "*lookup*" _
+       Or LCase$(wsSrc.Name) Like "*summary*" _
+       Or LCase$(wsSrc.Name) Like "*template*" _
+       Or InStr(1, LCase$(wsSrc.Name), "_subj analysis_") > 0 _
+       Or InStr(1, LCase$(wsSrc.Name), "dashboard") > 0 _
+       Or InStr(1, LCase$(wsSrc.Name), "atrisk_") > 0 _
+       Or InStr(1, LCase$(wsSrc.Name), "topqual_") > 0 Then
+        Exit Sub
+    End If
+
+    classCol = FindHeaderColumn(wsSrc, 1, "Class")
+    If classCol = 0 Then Exit Sub
+    nameCol = FindFirstHeaderColumn(wsSrc, 1, Array("Name", "Student Name", "Student"))
+    regCol = FindFirstHeaderColumn(wsSrc, 1, Array("RegNo", "Reg No", "Register No", "Index No", "Adm No"))
+
+    lastRow = wsSrc.Cells(wsSrc.Rows.count, classCol).End(xlUp).Row
+    firstClass = ""
+    For r = 2 To lastRow
+        firstClass = Trim$(CStr(wsSrc.Cells(r, classCol).value))
+        If firstClass <> "" Then Exit For
+    Next r
+    If firstClass = "" Then Exit Sub
+
+    levelCode = InferLevelCodeFromClass(firstClass)
+    If levelCode = "" Then Exit Sub
+    If UCase$(levelCode) <> UCase$(targetLevel) Then Exit Sub
+
+    lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
+    subjCount = 0
+    For c = 1 To lastCol
+        If c <> classCol Then
+            header = Trim$(CStr(wsSrc.Cells(1, c).value))
+            If header <> "" And IsLikelySubjectGradeColumn(header) Then
+                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                subjectName = StripGradeHeaderSuffix(header)
+                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
+                    subjCount = subjCount + 1
+                    ReDim Preserve subjectCols(1 To subjCount)
+                    ReDim Preserve subjectNames(1 To subjCount)
+                    ReDim Preserve subjectSchemeKeys(1 To subjCount)
+                    ReDim Preserve subjectScoreCols(1 To subjCount)
+                    subjectCols(subjCount) = c
+                    subjectNames(subjCount) = subjectName
+                    subjectSchemeKeys(subjCount) = schemeKey
+                    subjectScoreCols(subjCount) = FindScoreColumnForSubject(wsSrc, 1, subjectName)
+                End If
+            End If
+        End If
+    Next c
+    If subjCount = 0 Then Exit Sub
+
+    For r = 2 To lastRow
+        className = Trim$(CStr(wsSrc.Cells(r, classCol).value))
+        If className = "" Then GoTo NextStudent
+        If UCase$(Left$(className, 1)) = "Y" Then GoTo NextStudent
+
+        If nameCol > 0 Then
+            studentName = Trim$(CStr(wsSrc.Cells(r, nameCol).value))
+        Else
+            studentName = ""
+        End If
+        If regCol > 0 Then
+            regNo = Trim$(CStr(wsSrc.Cells(r, regCol).value))
+        Else
+            regNo = ""
+        End If
+
+        topCount = 0
+        g1GroupCount = 0
+        g2GroupCount = 0
+        g3GroupCount = 0
+        groupTotalCount = 0
+
+        For i = 1 To subjCount
+            rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
+            gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
+            rawScore = ""
+            If subjectScoreCols(i) > 0 Then rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
+
+            isVrMc = (rawGrade = "VR" Or rawScore = "VR" Or rawGrade = "MC" Or rawScore = "MC")
+
+            If gradeStr <> "" Or isVrMc Then
+                groupTotalCount = groupTotalCount + 1
+                Select Case UCase$(Trim$(subjectSchemeKeys(i)))
+                    Case "G1": g1GroupCount = g1GroupCount + 1
+                    Case "G2": g2GroupCount = g2GroupCount + 1
+                    Case "G3": g3GroupCount = g3GroupCount + 1
+                End Select
+            End If
+
+            If Not isVrMc And gradeStr <> "" Then
+                If IsTopGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
+                    topCount = topCount + 1
+                End If
+            End If
+        Next i
+
+        If groupTotalCount > 0 Then
+            fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+            If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Then
+                recCount = recCount + 1
+                If recCount = 1 Then
+                    ReDim recs(1 To 1)
+                Else
+                    ReDim Preserve recs(1 To recCount)
+                End If
+
+                recs(recCount).LevelCode = levelCode
+                recs(recCount).ClassName = className
+                recs(recCount).RegNo = regNo
+                recs(recCount).StudentName = studentName
+                recs(recCount).GroupCode = fsbbGroup
+                recs(recCount).TopCount = topCount
+            End If
+        End If
+
+NextStudent:
+    Next r
+    Exit Sub
+
+FailSafe:
+    ' Skip broken source sheet
+End Sub
+
+Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
+                                      ByVal startRow As Long, _
+                                      ByVal levelCode As String, _
+                                      ByVal groupCode As String, _
+                                      ByVal topN As Long, _
+                                      ByRef recs() As TopStudentRec, _
+                                      ByVal recCount As Long) As Long
+    Dim idx() As Long
+    Dim idxCount As Long
+    Dim i As Long, j As Long, tmp As Long
+    Dim cutoff As Long
+    Dim r As Long
+
+    wsOut.Cells(startRow, 1).value = groupCode & " Top Students (Top " & topN & ", ties included)"
+    wsOut.Cells(startRow, 1).Font.Bold = True
+    wsOut.Cells(startRow, 1).Font.Color = RGB(79, 33, 33)
+    startRow = startRow + 1
+
+    For i = 1 To recCount
+        If UCase$(recs(i).GroupCode) = UCase$(groupCode) Then
+            idxCount = idxCount + 1
+            If idxCount = 1 Then
+                ReDim idx(1 To 1)
+            Else
+                ReDim Preserve idx(1 To idxCount)
+            End If
+            idx(idxCount) = i
+        End If
+    Next i
+
+    If idxCount = 0 Then
+        wsOut.Cells(startRow, 1).value = "(No students found for " & groupCode & ")"
+        wsOut.Cells(startRow, 1).Font.Italic = True
+        WriteTopGroupSection = startRow + 2
+        Exit Function
+    End If
+
+    ' Sort by TopCount desc only.
+    For i = 1 To idxCount - 1
+        For j = i + 1 To idxCount
+            If recs(idx(j)).TopCount > recs(idx(i)).TopCount Then
+                tmp = idx(i)
+                idx(i) = idx(j)
+                idx(j) = tmp
+            End If
+        Next j
+    Next i
+
+    If idxCount <= topN Then
+        cutoff = recs(idx(idxCount)).TopCount
+    Else
+        cutoff = recs(idx(topN)).TopCount
+    End If
+
+    r = startRow
+    For i = 1 To idxCount
+        If recs(idx(i)).TopCount < cutoff Then Exit For
+        wsOut.Cells(r, 1).value = levelCode
+        wsOut.Cells(r, 2).value = recs(idx(i)).ClassName
+        wsOut.Cells(r, 3).value = recs(idx(i)).RegNo
+        wsOut.Cells(r, 4).value = recs(idx(i)).StudentName
+        wsOut.Cells(r, 5).value = recs(idx(i)).GroupCode
+        wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
+        r = r + 1
+    Next i
+
+    WriteTopGroupSection = r + 1
+End Function
+
+Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As String)
+    wsOut.Range("A1").value = levelCode & " Top Students by Top Grades"
+    wsOut.Range("A1").Font.Bold = True
+    wsOut.Range("A1").Font.Size = 14
+
+    wsOut.Range("A2").value = "Ranking uses top-grade count only. G3 top 20; G2 top 10; G1 top 10; ties included."
+    wsOut.Range("A2").Font.Italic = True
+
+    wsOut.Cells(4, 1).value = "Level"
+    wsOut.Cells(4, 2).value = "Class"
+    wsOut.Cells(4, 3).value = "RegNo"
+    wsOut.Cells(4, 4).value = "Name"
+    wsOut.Cells(4, 5).value = "Group"
+    wsOut.Cells(4, 6).value = "Top Grades"
+    wsOut.Rows(4).Font.Bold = True
+End Sub
+
+Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
+    Dim rngTable As Range
+
+    wsOut.Columns("A:F").AutoFit
+    wsOut.Columns("A").ColumnWidth = 8
+    wsOut.Columns("B").ColumnWidth = 12
+    wsOut.Columns("C").ColumnWidth = 5
+    wsOut.Columns("D").ColumnWidth = 24
+    wsOut.Columns("E").ColumnWidth = 8
+    wsOut.Columns("F").ColumnWidth = 10
+    wsOut.Columns("C").HorizontalAlignment = xlCenter
+    wsOut.Columns("E:F").HorizontalAlignment = xlCenter
+
+    If lastRow >= 4 Then
+        Set rngTable = wsOut.Range("A4:F" & lastRow)
+        With rngTable.Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(200, 200, 200)
+            .Weight = xlThin
+        End With
+    End If
 End Sub
 
 Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
@@ -1558,6 +1863,22 @@ Private Function IsFailGradeByScheme(ByVal gradeStr As String, ByVal schemeKey A
             IsFailGradeByScheme = (g = "E")
         Case Else
             IsFailGradeByScheme = False
+    End Select
+End Function
+
+Private Function IsTopGradeByScheme(ByVal gradeStr As String, ByVal schemeKey As String) As Boolean
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            IsTopGradeByScheme = (g = "A1" Or g = "A2")
+        Case "G2"
+            IsTopGradeByScheme = (g = "1" Or g = "2")
+        Case "G1"
+            IsTopGradeByScheme = (g = "A" Or g = "B")
+        Case Else
+            IsTopGradeByScheme = False
     End Select
 End Function
 
