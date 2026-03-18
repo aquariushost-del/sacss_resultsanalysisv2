@@ -435,11 +435,16 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 24
     wsOut.Columns("C").ColumnWidth = 15
-    wsOut.Columns("D").ColumnWidth = 10
+    wsOut.Columns("D").ColumnWidth = 5
     wsOut.Columns("E").ColumnWidth = 24
+    wsOut.Columns("F").ColumnWidth = 10
+    wsOut.Columns("G").ColumnWidth = 9
+    wsOut.Columns("H").ColumnWidth = 9
     wsOut.Columns("I").ColumnWidth = 40
     wsOut.Columns("I").WrapText = True
     wsOut.Columns("K").EntireColumn.Hidden = True
+    wsOut.Range("F4:H4").WrapText = True
+    wsOut.Range("A4:J4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
         Set rngTable = wsOut.Range("A4:J" & lastRow)
