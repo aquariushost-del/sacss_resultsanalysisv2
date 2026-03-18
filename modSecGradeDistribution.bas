@@ -7,7 +7,7 @@ Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
 Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
-Private Const TOP_NAV_START_CELL As String = "R3"
+Private Const TOP_NAV_START_CELL As String = "P3"
 Private Const TOP_NAV_BTN_PREFIX As String = "Nav_TopQual_"
 Private Const NAV_BTN_WIDTH_FACTOR As Double = 0.5
 Private Const LEVEL_MODE_AUTO_FSBB As String = "AUTO_FSBB"
@@ -2158,6 +2158,21 @@ Private Function BuildSecDestSheetName(ByVal levelCode As String, ByVal examLabe
             baseLabel = Left$(baseLabel, Len(baseLabel) - 1)
         Loop
 
+        ' Avoid repeating level code in output sheet name, e.g. S1_Subj Analysis_S1_TERM1...
+        If UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & "_") _
+           Or UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & " ") _
+           Or UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & "-") Then
+            baseLabel = Mid$(baseLabel, Len(levelCode) + 2)
+        End If
+
+        ' Improve readability for compact source names like TERM1WA.
+        baseLabel = Replace(baseLabel, "_", " ")
+        baseLabel = Replace(baseLabel, "WA", " WA")
+        Do While InStr(baseLabel, "  ") > 0
+            baseLabel = Replace(baseLabel, "  ", " ")
+        Loop
+        baseLabel = Trim$(baseLabel)
+
         safeBase = CleanSheetNameFragment(baseLabel)
         If safeBase = "" Then safeBase = "Exam"
 
@@ -2168,7 +2183,16 @@ Private Function BuildSecDestSheetName(ByVal levelCode As String, ByVal examLabe
         safeName = prefix & safeBase & "_" & yearPart
         If Len(safeName) > 31 Then safeName = Left$(safeName, 31)
     Else
-        safeName = prefix & examLabel
+        baseLabel = examLabel
+        If UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & "_") _
+           Or UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & " ") _
+           Or UCase$(Left$(baseLabel, Len(levelCode) + 1)) = UCase$(levelCode & "-") Then
+            baseLabel = Mid$(baseLabel, Len(levelCode) + 2)
+        End If
+        baseLabel = Replace(baseLabel, "_", " ")
+        baseLabel = Trim$(baseLabel)
+
+        safeName = prefix & baseLabel
         safeName = CleanSheetNameFragment(safeName)
         If Len(safeName) > 31 Then safeName = Left$(safeName, 31)
     End If
