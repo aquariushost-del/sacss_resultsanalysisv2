@@ -254,6 +254,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim vrSubjects As String, rawGrade As String, rawScore As String
     Dim subjectName As String
     Dim isVrSubject As Boolean
+    Dim g1Taken As Long, g2Taken As Long, g3Taken As Long
+    Dim fsbbGroup As String
+    Dim groupThresholdPct As Double
 
     On Error GoTo FailSafe
 
@@ -312,6 +315,8 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 
     If subjCount = 0 Then Exit Function
 
+    groupThresholdPct = GetGroupThresholdPercent()
+
     outRow = startOutRow
     For r = 2 To lastRow
         className = Trim$(CStr(wsSrc.Cells(r, classCol).value))
@@ -337,6 +342,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         failedSubjects = ""
         attemptedSubjects = ""
         vrSubjects = ""
+        g1Taken = 0
+        g2Taken = 0
+        g3Taken = 0
 
         For i = 1 To subjCount
             rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
@@ -355,6 +363,11 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 
             If gradeStr <> "" Then
                 attemptedCount = attemptedCount + 1
+                Select Case UCase$(Trim$(subjectSchemeKeys(i)))
+                    Case "G1": g1Taken = g1Taken + 1
+                    Case "G2": g2Taken = g2Taken + 1
+                    Case "G3": g3Taken = g3Taken + 1
+                End Select
                 If attemptedSubjects <> "" Then attemptedSubjects = attemptedSubjects & ", "
                 attemptedSubjects = attemptedSubjects & subjectNames(i)
                 If IsFailGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
@@ -389,6 +402,8 @@ NextSubject:
             wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
             wsOut.Cells(outRow, 11).value = attemptedSubjects
             wsOut.Cells(outRow, 12).value = vrSubjects
+            fsbbGroup = ResolveFsbbGroup(g1Taken, g2Taken, g3Taken, attemptedCount, groupThresholdPct)
+            wsOut.Cells(outRow, 14).value = fsbbGroup
 
             If riskBand = "AT RISK" Then
                 wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
@@ -606,6 +621,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 10).value = "SortKey"
     wsOut.Cells(4, 11).value = "Attempted Subjects"
     wsOut.Cells(4, 12).value = "VR Subjects"
+    wsOut.Cells(4, 14).value = "Group"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
@@ -614,14 +630,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     If lastRow >= 5 Then
-        Set sortRange = wsOut.Range("A4:L" & lastRow)
+        Set sortRange = wsOut.Range("A4:N" & lastRow)
         sortRange.Sort Key1:=wsOut.Range("J5"), Order1:=xlAscending, _
                        Key2:=wsOut.Range("G5"), Order2:=xlDescending, _
                        Key3:=wsOut.Range("D5"), Order3:=xlAscending, _
                        Header:=xlYes
     End If
 
-    wsOut.Columns("A:L").AutoFit
+    wsOut.Columns("A:N").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 15
     wsOut.Columns("C").ColumnWidth = 5
@@ -636,12 +652,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("K").WrapText = True
     wsOut.Columns("L").ColumnWidth = 40
     wsOut.Columns("L").WrapText = True
+    wsOut.Columns("N").ColumnWidth = 10
+    wsOut.Columns("N").HorizontalAlignment = xlCenter
     wsOut.Columns("J").EntireColumn.Hidden = True
     wsOut.Range("E4:G4").WrapText = True
-    wsOut.Range("A4:L4").VerticalAlignment = xlCenter
+    wsOut.Range("A4:N4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:L" & lastRow)
+        Set rngTable = wsOut.Range("A4:N" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
@@ -1556,6 +1574,59 @@ Private Function GetAtRiskFailThreshold() As Long
         If GetAtRiskFailThreshold < 1 Then GetAtRiskFailThreshold = DEFAULT_AT_RISK_FAIL_THRESHOLD
     Else
         GetAtRiskFailThreshold = DEFAULT_AT_RISK_FAIL_THRESHOLD
+    End If
+End Function
+
+Private Function GetGroupThresholdPercent() As Double
+    Dim ws As Worksheet
+    Dim v As Variant
+    Dim p As Double
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        GetGroupThresholdPercent = 70#
+        Exit Function
+    End If
+
+    ' Optional override: Settings!L8
+    v = ws.Range("L8").value
+    If IsNumeric(v) Then
+        p = CDbl(v)
+        If p <= 1# Then p = p * 100#
+        If p < 1# Or p > 100# Then p = 70#
+        GetGroupThresholdPercent = p
+    Else
+        GetGroupThresholdPercent = 70#
+    End If
+End Function
+
+Private Function ResolveFsbbGroup(ByVal g1Taken As Long, _
+                                  ByVal g2Taken As Long, _
+                                  ByVal g3Taken As Long, _
+                                  ByVal attemptedCount As Long, _
+                                  ByVal thresholdPct As Double) As String
+    Dim p1 As Double, p2 As Double, p3 As Double
+
+    If attemptedCount <= 0 Then
+        ResolveFsbbGroup = ""
+        Exit Function
+    End If
+
+    p1 = (CDbl(g1Taken) / CDbl(attemptedCount)) * 100#
+    p2 = (CDbl(g2Taken) / CDbl(attemptedCount)) * 100#
+    p3 = (CDbl(g3Taken) / CDbl(attemptedCount)) * 100#
+
+    If p3 >= thresholdPct Then
+        ResolveFsbbGroup = "G3"
+    ElseIf p2 >= thresholdPct Then
+        ResolveFsbbGroup = "G2"
+    ElseIf p1 >= thresholdPct Then
+        ResolveFsbbGroup = "G1"
+    Else
+        ResolveFsbbGroup = "MIXED"
     End If
 End Function
 
