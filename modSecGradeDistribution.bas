@@ -456,7 +456,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
                  wsDest.Cells(cohortRow, colMean)).NumberFormat = "0.0"
 
     wsDest.Columns(destColFirst + 1).Resize(, colMean - destColFirst).AutoFit
-    wsDest.Columns(destColFirst).ColumnWidth = 10
+    wsDest.Columns(destColFirst).ColumnWidth = 15
 
     Set rngCohortRow = wsDest.Range(wsDest.Cells(cohortRow, destColFirst), _
                                     wsDest.Cells(cohortRow, colMean))
