@@ -953,17 +953,17 @@ Private Function InferLevelCodeFromClass(ByVal className As String) As String
     For i = 1 To Len(s) - 1
         If Mid$(s, i, 1) = "S" Then
             ch = Mid$(s, i + 1, 1)
-            If ch >= "1" And ch <= "4" Then
+            If ch >= "1" And ch <= "5" Then
                 InferLevelCodeFromClass = "S" & ch
                 Exit Function
             End If
         End If
     Next i
 
-    ' Fallback: first standalone digit 1..4 in the class string.
+    ' Fallback: first standalone digit 1..5 in the class string.
     For i = 1 To Len(s)
         ch = Mid$(s, i, 1)
-        If ch >= "1" And ch <= "4" Then
+        If ch >= "1" And ch <= "5" Then
             InferLevelCodeFromClass = "S" & ch
             Exit Function
         End If
