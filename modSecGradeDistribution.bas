@@ -248,6 +248,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim attemptedCount As Long, passCount As Long, failCount As Long
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
+    Dim vrSubjects As String, rawGrade As String
 
     On Error GoTo FailSafe
 
@@ -327,9 +328,16 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         failCount = 0
         failedSubjects = ""
         attemptedSubjects = ""
+        vrSubjects = ""
 
         For i = 1 To subjCount
+            rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
             gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
+
+            If rawGrade = "VR" Then
+                If vrSubjects <> "" Then vrSubjects = vrSubjects & ", "
+                vrSubjects = vrSubjects & subjectNames(i)
+            End If
 
             If gradeStr <> "" Then
                 attemptedCount = attemptedCount + 1
@@ -366,6 +374,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             wsOut.Cells(outRow, 10).value = riskBand
             wsOut.Cells(outRow, 11).value = RiskBandRank(riskBand)
             wsOut.Cells(outRow, 13).value = attemptedSubjects
+            wsOut.Cells(outRow, 14).value = vrSubjects
 
             If riskBand = "AT RISK" Then
                 wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 10)).Interior.Color = RGB(255, 230, 230)
@@ -583,6 +592,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 10).value = "Risk Band"
     wsOut.Cells(4, 11).value = "SortKey"
     wsOut.Cells(4, 13).value = "Attempted Subjects"
+    wsOut.Cells(4, 14).value = "VR Subjects"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
@@ -591,14 +601,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     If lastRow >= 5 Then
-        Set sortRange = wsOut.Range("A4:M" & lastRow)
+        Set sortRange = wsOut.Range("A4:N" & lastRow)
         sortRange.Sort Key1:=wsOut.Range("K5"), Order1:=xlAscending, _
                        Key2:=wsOut.Range("H5"), Order2:=xlDescending, _
                        Key3:=wsOut.Range("E5"), Order3:=xlAscending, _
                        Header:=xlYes
     End If
 
-    wsOut.Columns("A:M").AutoFit
+    wsOut.Columns("A:N").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 24
     wsOut.Columns("C").ColumnWidth = 15
@@ -612,12 +622,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("I").WrapText = True
     wsOut.Columns("M").ColumnWidth = 40
     wsOut.Columns("M").WrapText = True
+    wsOut.Columns("N").ColumnWidth = 40
+    wsOut.Columns("N").WrapText = True
     wsOut.Columns("K").EntireColumn.Hidden = True
     wsOut.Range("F4:H4").WrapText = True
-    wsOut.Range("A4:M4").VerticalAlignment = xlCenter
+    wsOut.Range("A4:N4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:M" & lastRow)
+        Set rngTable = wsOut.Range("A4:N" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
