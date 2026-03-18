@@ -19,6 +19,7 @@ Private Type TopStudentRec
     TopCount As Long
     TopPrimaryCount As Long
     TopSecondaryCount As Long
+    DownwardRemarks As String
 End Type
 
 '=========================================================
@@ -397,6 +398,10 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim topPrimaryCount As Long, topSecondaryCount As Long
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long, groupTotalCount As Long
     Dim fsbbGroup As String
+    Dim remarksText As String
+    Dim mappedLabel As String
+    Dim usedDownward As Boolean
+    Dim mappedBand As Long
 
     On Error GoTo FailSafe
 
@@ -503,6 +508,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
             If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Then
                 topPrimaryCount = 0
                 topSecondaryCount = 0
+                remarksText = ""
                 For i = 1 To subjCount
                     rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
                     gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
@@ -511,12 +517,20 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                     isVrMc = (rawGrade = "VR" Or rawScore = "VR" Or rawGrade = "MC" Or rawScore = "MC")
 
                     If Not isVrMc And gradeStr <> "" Then
-                        Select Case GetTopBandByDownwardMap(gradeStr, subjectSchemeKeys(i), fsbbGroup)
+                        mappedLabel = ""
+                        usedDownward = False
+                        mappedBand = GetTopBandByDownwardMapEx(gradeStr, subjectSchemeKeys(i), fsbbGroup, mappedLabel, usedDownward)
+                        Select Case mappedBand
                             Case 1
                                 topPrimaryCount = topPrimaryCount + 1
                             Case 2
                                 topSecondaryCount = topSecondaryCount + 1
                         End Select
+
+                        If usedDownward And mappedBand > 0 Then
+                            If remarksText <> "" Then remarksText = remarksText & ", "
+                            remarksText = remarksText & subjectNames(i) & " " & UCase$(Trim$(subjectSchemeKeys(i))) & " " & gradeStr & " -> " & mappedLabel
+                        End If
                     End If
                 Next i
                 topCount = topPrimaryCount + topSecondaryCount
@@ -536,6 +550,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 recs(recCount).TopCount = topCount
                 recs(recCount).TopPrimaryCount = topPrimaryCount
                 recs(recCount).TopSecondaryCount = topSecondaryCount
+                recs(recCount).DownwardRemarks = remarksText
             End If
         End If
 
@@ -612,7 +627,8 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     wsOut.Cells(startRow, 6).value = primaryLbl & "/" & secondaryLbl
     wsOut.Cells(startRow, 7).value = primaryLbl
     wsOut.Cells(startRow, 8).value = secondaryLbl
-    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 8)).Font.Bold = True
+    wsOut.Cells(startRow, 9).value = "Remarks"
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 9)).Font.Bold = True
     startRow = startRow + 1
 
     If idxCount <= topN Then
@@ -640,6 +656,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
         wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
         wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
+        wsOut.Cells(r, 9).value = recs(idx(i)).DownwardRemarks
         r = r + 1
     Next i
 
@@ -662,7 +679,7 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                 "G2->G1: 1/2/3=>A, 4=>B. " & _
                 "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B."
 
-    With wsOut.Range("A2:H2")
+    With wsOut.Range("A2:I2")
         .Merge
         .value = explainer
         .WrapText = True
@@ -675,7 +692,7 @@ End Sub
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
-    wsOut.Columns("A:H").AutoFit
+    wsOut.Columns("A:I").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 12
     wsOut.Columns("C").ColumnWidth = 5
@@ -684,11 +701,13 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
     wsOut.Columns("F").ColumnWidth = 10
     wsOut.Columns("G").ColumnWidth = 10
     wsOut.Columns("H").ColumnWidth = 10
+    wsOut.Columns("I").ColumnWidth = 45
     wsOut.Columns("C").HorizontalAlignment = xlCenter
     wsOut.Columns("E:H").HorizontalAlignment = xlCenter
+    wsOut.Columns("I").WrapText = True
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:H" & lastRow)
+        Set rngTable = wsOut.Range("A4:I" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
@@ -714,61 +733,83 @@ Private Sub GetTopBandLabels(ByVal groupCode As String, ByRef primaryLbl As Stri
     End Select
 End Sub
 
-Private Function GetTopBandByDownwardMap(ByVal gradeStr As String, _
-                                         ByVal sourceScheme As String, _
-                                         ByVal targetGroup As String) As Long
+Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
+                                           ByVal sourceScheme As String, _
+                                           ByVal targetGroup As String, _
+                                           ByRef mappedLabel As String, _
+                                           ByRef usedDownward As Boolean) As Long
     Dim g As String, src As String, tgt As String
     g = UCase$(Trim$(gradeStr))
     src = UCase$(Trim$(sourceScheme))
     tgt = UCase$(Trim$(targetGroup))
+    mappedLabel = ""
+    usedDownward = False
 
     Select Case tgt
         Case "G3"
             If src = "G3" Then
                 If g = "A1" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "A1"
                 ElseIf g = "A2" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "A2"
                 End If
             End If
 
         Case "G2"
             If src = "G2" Then
                 If g = "1" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "1"
                 ElseIf g = "2" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "2"
                 End If
             ElseIf src = "G3" Then
                 ' G3 -> G2 mapping: A1/A2/B3->1 ; B4/C5/C6->2 ; D7->3 ; E8->4 ; 9/F9->5
                 If g = "A1" Or g = "A2" Or g = "B3" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "1"
+                    usedDownward = True
                 ElseIf g = "B4" Or g = "C5" Or g = "C6" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "2"
+                    usedDownward = True
                 End If
             End If
 
         Case "G1"
             If src = "G1" Then
                 If g = "A" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "A"
                 ElseIf g = "B" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "B"
                 End If
             ElseIf src = "G2" Then
                 ' G2 -> G1 mapping: 1/2/3->A ; 4->B ; 5->C ; 6->D
                 If g = "1" Or g = "2" Or g = "3" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "A"
+                    usedDownward = True
                 ElseIf g = "4" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "B"
+                    usedDownward = True
                 End If
             ElseIf src = "G3" Then
                 ' G3 -> G1 mapping: A1/A2/B3/B4/C5/C6/D7->A ; E8->B ; 9/F9->C
                 If g = "A1" Or g = "A2" Or g = "B3" Or g = "B4" _
                    Or g = "C5" Or g = "C6" Or g = "D7" Then
-                    GetTopBandByDownwardMap = 1
+                    GetTopBandByDownwardMapEx = 1
+                    mappedLabel = "A"
+                    usedDownward = True
                 ElseIf g = "E8" Then
-                    GetTopBandByDownwardMap = 2
+                    GetTopBandByDownwardMapEx = 2
+                    mappedLabel = "B"
+                    usedDownward = True
                 End If
             End If
     End Select
