@@ -140,7 +140,7 @@ Public Sub BuildTopQualityNavigation()
     Exit Sub
 
 ErrHandler:
-    ' Silent fallback
+    MsgBox "Error in BuildTopQualityNavigation: " & Err.Description, vbExclamation
 End Sub
 
 Private Sub CreateTopQualityNavButton(ByVal wsNav As Worksheet, _
