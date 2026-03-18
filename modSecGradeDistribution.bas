@@ -4,6 +4,9 @@ Option Explicit
 Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
 Private Const DEFAULT_AT_RISK_FAIL_THRESHOLD As Long = 3
 Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
+Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
+Private Const ATRISK_NAV_START_CELL As String = "T3"
+Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
 
 '=========================================================
 ' Module: modSecGradeDistribution
@@ -71,6 +74,9 @@ Public Sub BuildSec_AtRiskSummary()
 
         FinalizeAtRiskSheet wsOut, outRow - 1
     Next lvl
+
+    BuildSec_AtRiskNavigation
+    BuildAllAtRiskHomeButtons
 
     wb.Worksheets("AtRisk_S1").Activate
     wb.Worksheets("AtRisk_S1").Range("A1").Select
@@ -378,6 +384,162 @@ NextStudent:
 
 FailSafe:
     AppendSecAtRiskFromSourceSheet = 0
+End Function
+
+Public Sub BuildSec_AtRiskNavigation()
+    Dim wsNav As Worksheet
+    Dim startCell As Range
+    Dim startRow As Long, startCol As Long
+    Dim rowPtr As Long
+    Dim lvl As Variant
+    Dim sheetName As String
+    Dim shp As Shape
+    Dim k As Long
+
+    On Error GoTo ErrHandler
+
+    On Error Resume Next
+    Set wsNav = ThisWorkbook.Worksheets(ATRISK_NAV_SHEET_NAME)
+    On Error GoTo ErrHandler
+    If wsNav Is Nothing Then Exit Sub
+
+    Set startCell = wsNav.Range(ATRISK_NAV_START_CELL)
+    startRow = startCell.Row
+    startCol = startCell.Column
+
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 5)).Clear
+    For k = wsNav.Shapes.count To 1 Step -1
+        Set shp = wsNav.Shapes(k)
+        If Left$(shp.Name, Len(ATRISK_NAV_BTN_PREFIX)) = ATRISK_NAV_BTN_PREFIX Then
+            shp.Delete
+        End If
+    Next k
+
+    wsNav.Cells(startRow, startCol).value = "SEC At-Risk Menu"
+    wsNav.Cells(startRow, startCol).Font.Bold = True
+    wsNav.Cells(startRow, startCol).Font.Size = 12
+    wsNav.Cells(startRow, startCol).Font.Color = RGB(156, 0, 6)
+    rowPtr = startRow + 1
+
+    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
+        sheetName = "AtRisk_" & CStr(lvl)
+        If WorksheetExistsByName(sheetName) Then
+            CreateAtRiskNavButton wsNav, sheetName, CStr(lvl) & " At Risk", rowPtr, startCol
+        Else
+            wsNav.Cells(rowPtr, startCol).value = CStr(lvl) & " At Risk (not built)"
+            wsNav.Cells(rowPtr, startCol).Font.Italic = True
+        End If
+        rowPtr = rowPtr + 2
+    Next lvl
+
+    Exit Sub
+
+ErrHandler:
+    ' Silent fallback
+End Sub
+
+Public Sub BuildAllAtRiskHomeButtons()
+    Dim ws As Worksheet
+    For Each ws In ThisWorkbook.Worksheets
+        If Left$(ws.Name, 7) = "AtRisk_" Then
+            AddAtRiskHomeButton ws
+        End If
+    Next ws
+End Sub
+
+Private Sub AddAtRiskHomeButton(ByVal ws As Worksheet)
+    Dim shp As Shape
+    Dim tgtCell As Range
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    Set tgtCell = ws.Range("P1")
+    leftPos = tgtCell.Left
+    topPos = tgtCell.Top
+    btnWidth = tgtCell.Width * 1.2
+    btnHeight = tgtCell.Height * 1.2
+
+    On Error Resume Next
+    ws.Shapes("HomeBtn").Delete
+    On Error GoTo 0
+
+    Set shp = ws.Shapes.AddShape( _
+        Type:=SHAPE_ROUNDED_RECTANGLE, _
+        Left:=leftPos, _
+        Top:=topPos, _
+        Width:=btnWidth, _
+        Height:=btnHeight)
+
+    With shp
+        .Name = "HomeBtn"
+        .Fill.ForeColor.RGB = RGB(244, 204, 204)
+        .line.ForeColor.RGB = RGB(192, 80, 77)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = "Home"
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 11
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(156, 0, 6)
+            .VerticalAnchor = msoAnchorMiddle
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .MarginLeft = 4
+            .MarginRight = 4
+        End With
+    End With
+
+    ws.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'Dashboard'!A1"
+End Sub
+
+Private Sub CreateAtRiskNavButton(ByVal wsNav As Worksheet, _
+                                  ByVal targetSheetName As String, _
+                                  ByVal displayText As String, _
+                                  ByVal rowNum As Long, _
+                                  ByVal firstCol As Long)
+    Dim shp As Shape
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    leftPos = wsNav.Cells(rowNum, firstCol).Left
+    topPos = wsNav.Cells(rowNum, firstCol).Top
+    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
+    btnHeight = wsNav.Rows(rowNum).Height * 1.3
+
+    Set shp = wsNav.Shapes.AddShape( _
+        Type:=SHAPE_ROUNDED_RECTANGLE, _
+        Left:=leftPos, _
+        Top:=topPos, _
+        Width:=btnWidth, _
+        Height:=btnHeight)
+
+    With shp
+        .Name = ATRISK_NAV_BTN_PREFIX & targetSheetName
+        .Fill.ForeColor.RGB = RGB(244, 204, 204)
+        .Fill.Transparency = 0#
+        .line.ForeColor.RGB = RGB(192, 80, 77)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = displayText
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 10.5
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(156, 0, 6)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+            .MarginLeft = 6
+            .MarginRight = 6
+            .MarginTop = 3
+            .MarginBottom = 3
+        End With
+    End With
+
+    wsNav.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'" & targetSheetName & "'!A1"
+End Sub
+
+Private Function WorksheetExistsByName(ByVal sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+    WorksheetExistsByName = Not ws Is Nothing
 End Function
 
 Private Function GetOrCreateWorksheet(ByVal sheetName As String) As Worksheet
