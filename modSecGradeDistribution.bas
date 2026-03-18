@@ -15,6 +15,8 @@ Private Type TopStudentRec
     StudentName As String
     GroupCode As String
     TopCount As Long
+    TopPrimaryCount As Long
+    TopSecondaryCount As Long
 End Type
 
 '=========================================================
@@ -295,6 +297,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim rawGrade As String, rawScore As String, gradeStr As String
     Dim isVrMc As Boolean
     Dim topCount As Long
+    Dim topPrimaryCount As Long, topSecondaryCount As Long
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long, groupTotalCount As Long
     Dim fsbbGroup As String
 
@@ -371,6 +374,8 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
         End If
 
         topCount = 0
+        topPrimaryCount = 0
+        topSecondaryCount = 0
         g1GroupCount = 0
         g2GroupCount = 0
         g3GroupCount = 0
@@ -393,16 +398,32 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 End Select
             End If
 
-            If Not isVrMc And gradeStr <> "" Then
-                If IsTopGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
-                    topCount = topCount + 1
-                End If
-            End If
         Next i
 
         If groupTotalCount > 0 Then
             fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+
             If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Then
+                topPrimaryCount = 0
+                topSecondaryCount = 0
+                For i = 1 To subjCount
+                    rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
+                    gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
+                    rawScore = ""
+                    If subjectScoreCols(i) > 0 Then rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
+                    isVrMc = (rawGrade = "VR" Or rawScore = "VR" Or rawGrade = "MC" Or rawScore = "MC")
+
+                    If Not isVrMc And gradeStr <> "" Then
+                        Select Case GetTopBandByDownwardMap(gradeStr, subjectSchemeKeys(i), fsbbGroup)
+                            Case 1
+                                topPrimaryCount = topPrimaryCount + 1
+                            Case 2
+                                topSecondaryCount = topSecondaryCount + 1
+                        End Select
+                    End If
+                Next i
+                topCount = topPrimaryCount + topSecondaryCount
+
                 recCount = recCount + 1
                 If recCount = 1 Then
                     ReDim recs(1 To 1)
@@ -416,6 +437,8 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 recs(recCount).StudentName = studentName
                 recs(recCount).GroupCode = fsbbGroup
                 recs(recCount).TopCount = topCount
+                recs(recCount).TopPrimaryCount = topPrimaryCount
+                recs(recCount).TopSecondaryCount = topSecondaryCount
             End If
         End If
 
@@ -437,8 +460,9 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     Dim idx() As Long
     Dim idxCount As Long
     Dim i As Long, j As Long, tmp As Long
-    Dim cutoff As Long
+    Dim cutoffTop As Long, cutoffPrimary As Long, cutoffSecondary As Long
     Dim r As Long
+    Dim primaryLbl As String, secondaryLbl As String
 
     wsOut.Cells(startRow, 1).value = groupCode & " Top Students (Top " & topN & ", ties included)"
     wsOut.Cells(startRow, 1).Font.Bold = True
@@ -464,10 +488,13 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         Exit Function
     End If
 
-    ' Sort by TopCount desc only.
+    ' Sort by TopCount desc, then primary top-band count, then secondary.
     For i = 1 To idxCount - 1
         For j = i + 1 To idxCount
-            If recs(idx(j)).TopCount > recs(idx(i)).TopCount Then
+            If recs(idx(j)).TopCount > recs(idx(i)).TopCount _
+               Or (recs(idx(j)).TopCount = recs(idx(i)).TopCount And recs(idx(j)).TopPrimaryCount > recs(idx(i)).TopPrimaryCount) _
+               Or (recs(idx(j)).TopCount = recs(idx(i)).TopCount And recs(idx(j)).TopPrimaryCount = recs(idx(i)).TopPrimaryCount _
+                   And recs(idx(j)).TopSecondaryCount > recs(idx(i)).TopSecondaryCount) Then
                 tmp = idx(i)
                 idx(i) = idx(j)
                 idx(j) = tmp
@@ -475,21 +502,34 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         Next j
     Next i
 
+    GetTopBandLabels groupCode, primaryLbl, secondaryLbl
+
     If idxCount <= topN Then
-        cutoff = recs(idx(idxCount)).TopCount
+        cutoffTop = recs(idx(idxCount)).TopCount
+        cutoffPrimary = recs(idx(idxCount)).TopPrimaryCount
+        cutoffSecondary = recs(idx(idxCount)).TopSecondaryCount
     Else
-        cutoff = recs(idx(topN)).TopCount
+        cutoffTop = recs(idx(topN)).TopCount
+        cutoffPrimary = recs(idx(topN)).TopPrimaryCount
+        cutoffSecondary = recs(idx(topN)).TopSecondaryCount
     End If
 
     r = startRow
     For i = 1 To idxCount
-        If recs(idx(i)).TopCount < cutoff Then Exit For
+        If recs(idx(i)).TopCount < cutoffTop Then Exit For
+        If recs(idx(i)).TopCount = cutoffTop Then
+            If recs(idx(i)).TopPrimaryCount < cutoffPrimary Then Exit For
+            If recs(idx(i)).TopPrimaryCount = cutoffPrimary And recs(idx(i)).TopSecondaryCount < cutoffSecondary Then Exit For
+        End If
         wsOut.Cells(r, 1).value = levelCode
         wsOut.Cells(r, 2).value = recs(idx(i)).ClassName
         wsOut.Cells(r, 3).value = recs(idx(i)).RegNo
         wsOut.Cells(r, 4).value = recs(idx(i)).StudentName
         wsOut.Cells(r, 5).value = recs(idx(i)).GroupCode
         wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
+        wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
+        wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
+        wsOut.Cells(r, 9).value = primaryLbl & "=" & recs(idx(i)).TopPrimaryCount & ", " & secondaryLbl & "=" & recs(idx(i)).TopSecondaryCount
         r = r + 1
     Next i
 
@@ -497,12 +537,29 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
 End Function
 
 Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As String)
+    Dim explainer As String
+
     wsOut.Range("A1").value = levelCode & " Top Students by Top Grades"
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
-    wsOut.Range("A2").value = "Ranking uses top-grade count only. G3 top 20; G2 top 10; G1 top 10; ties included."
-    wsOut.Range("A2").Font.Italic = True
+    explainer = "How ranking works: Top Grades first, then Top Band 1, then Top Band 2. " & _
+                "G3 top 20; G2/G1 top 10; ties included." & vbLf & _
+                "Top bands: G3 uses A1 (Band1), A2 (Band2); G2 uses 1 (Band1), 2 (Band2); " & _
+                "G1 uses A (Band1), B (Band2)." & vbLf & _
+                "Downward conversion for mixed-level subjects: " & _
+                "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
+                "G2->G1: 1/2/3=>A, 4=>B. " & _
+                "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B."
+
+    With wsOut.Range("A2:I2")
+        .Merge
+        .value = explainer
+        .WrapText = True
+        .Font.Italic = True
+        .VerticalAlignment = xlTop
+    End With
+    wsOut.Rows(2).RowHeight = 60
 
     wsOut.Cells(4, 1).value = "Level"
     wsOut.Cells(4, 2).value = "Class"
@@ -510,24 +567,31 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
     wsOut.Cells(4, 4).value = "Name"
     wsOut.Cells(4, 5).value = "Group"
     wsOut.Cells(4, 6).value = "Top Grades"
+    wsOut.Cells(4, 7).value = "Top Band 1"
+    wsOut.Cells(4, 8).value = "Top Band 2"
+    wsOut.Cells(4, 9).value = "Breakdown"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
-    wsOut.Columns("A:F").AutoFit
+    wsOut.Columns("A:I").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 12
     wsOut.Columns("C").ColumnWidth = 5
     wsOut.Columns("D").ColumnWidth = 24
     wsOut.Columns("E").ColumnWidth = 8
     wsOut.Columns("F").ColumnWidth = 10
+    wsOut.Columns("G").ColumnWidth = 10
+    wsOut.Columns("H").ColumnWidth = 10
+    wsOut.Columns("I").ColumnWidth = 20
     wsOut.Columns("C").HorizontalAlignment = xlCenter
-    wsOut.Columns("E:F").HorizontalAlignment = xlCenter
+    wsOut.Columns("E:H").HorizontalAlignment = xlCenter
+    wsOut.Columns("I").WrapText = True
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:F" & lastRow)
+        Set rngTable = wsOut.Range("A4:I" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
@@ -535,6 +599,83 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
         End With
     End If
 End Sub
+
+Private Sub GetTopBandLabels(ByVal groupCode As String, ByRef primaryLbl As String, ByRef secondaryLbl As String)
+    Select Case UCase$(Trim$(groupCode))
+        Case "G3"
+            primaryLbl = "A1"
+            secondaryLbl = "A2"
+        Case "G2"
+            primaryLbl = "1"
+            secondaryLbl = "2"
+        Case "G1"
+            primaryLbl = "A"
+            secondaryLbl = "B"
+        Case Else
+            primaryLbl = "Top1"
+            secondaryLbl = "Top2"
+    End Select
+End Sub
+
+Private Function GetTopBandByDownwardMap(ByVal gradeStr As String, _
+                                         ByVal sourceScheme As String, _
+                                         ByVal targetGroup As String) As Long
+    Dim g As String, src As String, tgt As String
+    g = UCase$(Trim$(gradeStr))
+    src = UCase$(Trim$(sourceScheme))
+    tgt = UCase$(Trim$(targetGroup))
+
+    Select Case tgt
+        Case "G3"
+            If src = "G3" Then
+                If g = "A1" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "A2" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            End If
+
+        Case "G2"
+            If src = "G2" Then
+                If g = "1" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "2" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            ElseIf src = "G3" Then
+                ' G3 -> G2 mapping: A1/A2/B3->1 ; B4/C5/C6->2 ; D7->3 ; E8->4 ; 9/F9->5
+                If g = "A1" Or g = "A2" Or g = "B3" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "B4" Or g = "C5" Or g = "C6" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            End If
+
+        Case "G1"
+            If src = "G1" Then
+                If g = "A" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "B" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            ElseIf src = "G2" Then
+                ' G2 -> G1 mapping: 1/2/3->A ; 4->B ; 5->C ; 6->D
+                If g = "1" Or g = "2" Or g = "3" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "4" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            ElseIf src = "G3" Then
+                ' G3 -> G1 mapping: A1/A2/B3/B4/C5/C6/D7->A ; E8->B ; 9/F9->C
+                If g = "A1" Or g = "A2" Or g = "B3" Or g = "B4" _
+                   Or g = "C5" Or g = "C6" Or g = "D7" Then
+                    GetTopBandByDownwardMap = 1
+                ElseIf g = "E8" Then
+                    GetTopBandByDownwardMap = 2
+                End If
+            End If
+    End Select
+End Function
 
 Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                                                 ByVal wsOut As Worksheet, _
