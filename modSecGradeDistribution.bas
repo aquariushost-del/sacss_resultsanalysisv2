@@ -1,0 +1,1016 @@
+Attribute VB_Name = "modSecGradeDistribution"
+Option Explicit
+
+Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
+Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
+
+'=========================================================
+' Module: modSecGradeDistribution
+'
+' PURPOSE:
+'   Automatic subject analysis for G1 / G2 / G3 grade tracks.
+'
+' ENTRY POINT:
+'   BuildAllSec_SubjectAnalysis
+'=========================================================
+
+'---------------------------------------------------------
+' ENTRY POINT - RUN ONCE, DOES ALL ELIGIBLE SHEETS
+'---------------------------------------------------------
+Public Sub BuildAllSec_SubjectAnalysis()
+    Dim wb As Workbook
+    Dim ws As Worksheet
+
+    On Error GoTo ErrHandler
+
+    Set wb = ThisWorkbook
+
+    For Each ws In wb.Worksheets
+        ProcessSecSourceSheet ws
+    Next ws
+
+    MsgBox "Subject Analysis generated for all eligible sheets.", vbInformation
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
+End Sub
+
+'---------------------------------------------------------
+' PROCESS ONE SOURCE SHEET
+'---------------------------------------------------------
+Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
+    Dim classCol As Long
+    Dim lastRow As Long
+    Dim firstClass As String
+    Dim levelCode As String
+    Dim lastCol As Long, c As Long
+    Dim header As String
+
+    Dim subjectCols() As Long
+    Dim subjectNames() As String
+    Dim subjectSchemeKeys() As String
+    Dim subjCount As Long
+
+    Dim examLabel As String
+    Dim destSheetName As String
+    Dim wb As Workbook
+    Dim wsDest As Worksheet
+    Dim i As Long
+    Dim destRowHeader As Long
+    Dim destTopLeft As String
+    Dim titleText As String
+
+    Const TABLE_GAP_ROWS As Long = 5
+
+    On Error GoTo ErrHandler
+
+    Set wb = ThisWorkbook
+
+    If LCase$(wsSrc.Name) Like "*settings*" _
+       Or LCase$(wsSrc.Name) Like "*config*" _
+       Or LCase$(wsSrc.Name) Like "*menu*" _
+       Or LCase$(wsSrc.Name) Like "*lookup*" _
+       Or LCase$(wsSrc.Name) Like "*summary*" _
+       Or LCase$(wsSrc.Name) Like "*template*" Then
+        Exit Sub
+    End If
+
+    classCol = FindHeaderColumn(wsSrc, 1, "Class")
+    If classCol = 0 Then Exit Sub
+
+    lastRow = wsSrc.Cells(wsSrc.Rows.count, classCol).End(xlUp).Row
+    firstClass = ""
+    For i = 2 To lastRow
+        firstClass = Trim$(CStr(wsSrc.Cells(i, classCol).value))
+        If firstClass <> "" Then Exit For
+    Next i
+    If firstClass = "" Then Exit Sub
+
+    levelCode = InferLevelCodeFromClass(firstClass)
+    If levelCode = "" Then Exit Sub
+
+    ' Detect subject grade columns and their schemes.
+    lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
+    subjCount = 0
+
+    For c = 1 To lastCol
+        If c <> classCol Then
+            header = Trim$(CStr(wsSrc.Cells(1, c).value))
+            If header <> "" And IsLikelySubjectGradeColumn(header) Then
+                Dim schemeKey As String
+                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+
+                If schemeKey <> "" Then
+                    subjCount = subjCount + 1
+                    ReDim Preserve subjectCols(1 To subjCount)
+                    ReDim Preserve subjectNames(1 To subjCount)
+                    ReDim Preserve subjectSchemeKeys(1 To subjCount)
+
+                    subjectCols(subjCount) = c
+                    subjectNames(subjCount) = StripGradeHeaderSuffix(header)
+                    subjectSchemeKeys(subjCount) = schemeKey
+                End If
+            End If
+        End If
+    Next c
+
+    If subjCount = 0 Then Exit Sub
+
+    examLabel = wsSrc.Name
+    destSheetName = BuildSecDestSheetName(levelCode, examLabel)
+
+    On Error Resume Next
+    Set wsDest = wb.Worksheets(destSheetName)
+    On Error GoTo ErrHandler
+
+    If wsDest Is Nothing Then
+        Set wsDest = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.count))
+        wsDest.Name = destSheetName
+    Else
+        Dim k As Long
+        Dim shp As Shape
+
+        wsDest.Cells.Clear
+
+        For k = wsDest.ChartObjects.count To 1 Step -1
+            wsDest.ChartObjects(k).Delete
+        Next k
+
+        For k = wsDest.Shapes.count To 1 Step -1
+            Set shp = wsDest.Shapes(k)
+            If Left$(shp.Name, 10) = "FlagPanel_" Then shp.Delete
+        Next k
+    End If
+
+    titleText = levelCode & " Subject Grade Distribution (" & examLabel & ") - G1/G2/G3"
+    With wsDest.Range("A1")
+        .value = titleText
+        .Font.Bold = True
+        .Font.Size = 14
+    End With
+
+    destRowHeader = 3
+    For i = 1 To subjCount
+        destTopLeft = wsDest.Cells(destRowHeader, 1).Address(False, False)
+
+        Dim tableEndRow As Long
+        BuildSecSubjectGradeDistribution _
+            srcSheetName:=wsSrc.Name, _
+            srcClassCol:=classCol, _
+            srcGradeCol:=subjectCols(i), _
+            destSheetName:=wsDest.Name, _
+            destTopLeft:=destTopLeft, _
+            subjectTitle:=subjectNames(i), _
+            schemeKey:=subjectSchemeKeys(i), _
+            outEndRow:=tableEndRow
+
+        If tableEndRow > 0 Then
+            ' Keep exactly 5 blank rows between tables.
+            destRowHeader = tableEndRow + TABLE_GAP_ROWS + 2
+        End If
+    Next i
+
+    Exit Sub
+
+ErrHandler:
+    ' Skip broken sheets and continue with the rest.
+End Sub
+
+'---------------------------------------------------------
+' ENGINE - BUILD ONE SUBJECT TABLE + CHART
+'---------------------------------------------------------
+Public Sub BuildSecSubjectGradeDistribution( _
+    ByVal srcSheetName As String, _
+    ByVal srcClassCol As Long, _
+    ByVal srcGradeCol As Long, _
+    ByVal destSheetName As String, _
+    ByVal destTopLeft As String, _
+    ByVal subjectTitle As String, _
+    Optional ByVal schemeKey As String = "G3", _
+    Optional ByRef outEndRow As Long = 0)
+
+    Dim wb As Workbook
+    Dim wsSrc As Worksheet, wsDest As Worksheet
+    Dim lastRow As Long, r As Long
+    Dim className As String, gradeStr As String
+
+    Dim gradeLabels() As String
+    Dim numBands As Long
+    Dim passMaxIdx As Long, failMinIdx As Long, topMaxIdx As Long
+    Dim pctPassLabel As String, pctFailLabel As String, pctTopLabel As String, meanLabel As String
+
+    Dim countsArr() As Long
+    Dim totalArr() As Long
+
+    Dim classList() As String
+    Dim sortedClassList() As String
+    Dim classCounts() As Long   ' (gradeBand, classIndex)
+    Dim classCount As Long
+    Dim classNameKey As String
+    Dim classIdx As Long
+    Dim subjectTotalN As Long
+    Dim minSubjectN As Long
+    Dim i As Long, j As Long
+
+    Dim destRowHeader As Long, destColFirst As Long
+    Dim rowPtr As Long, cohortRow As Long
+
+    Dim total As Long
+    Dim passCount As Long, failCount As Long, topCount As Long
+    Dim meanValue As Double
+
+    Dim colNo As Long, colPctPass As Long, colPctFail As Long, colPctTop As Long, colMean As Long
+
+    Dim rngTable As Range
+    Dim rngHeader As Range, rngData As Range
+    Dim rngCohortRow As Range
+
+    Dim co As ChartObject
+    Dim ch As Chart
+    Dim leftPos As Double, topPos As Double, chartWidth As Double, chartHeight As Double
+
+    Dim pastelColors(1 To 9) As Long
+    Dim s As Series, pt As Point
+
+    Dim titleCell As Range
+    Dim validityFlag As String, patternType As String
+    Dim line1 As String, line2 As String, line3 As String
+
+    outEndRow = 0
+    On Error GoTo ErrHandler
+
+    Set wb = ThisWorkbook
+    Set wsSrc = wb.Worksheets(srcSheetName)
+    Set wsDest = wb.Worksheets(destSheetName)
+
+    If Not InitGradeScheme(schemeKey, gradeLabels, passMaxIdx, failMinIdx, topMaxIdx, _
+                           pctPassLabel, pctFailLabel, pctTopLabel, meanLabel) Then
+        Exit Sub
+    End If
+
+    numBands = UBound(gradeLabels)
+    InitPastelPalette pastelColors
+
+    lastRow = wsSrc.Cells(wsSrc.Rows.count, srcClassCol).End(xlUp).Row
+
+    For r = 2 To lastRow
+        className = Trim$(CStr(wsSrc.Cells(r, srcClassCol).value))
+        gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, srcGradeCol).value), schemeKey)
+
+        If className <> "" And gradeStr <> "" Then
+            ' Legacy safeguard: keep excluding Y-track classes if present.
+            If UCase$(Left$(className, 1)) <> "Y" Then
+                j = GradeIndexByScheme(gradeStr, gradeLabels)
+                If j >= 1 And j <= numBands Then
+                    classIdx = FindClassIndex(classList, classCount, className)
+                    If classIdx = 0 Then
+                        classCount = classCount + 1
+
+                        If classCount = 1 Then
+                            ReDim classList(1 To 1)
+                            ReDim classCounts(1 To numBands, 1 To 1)
+                        Else
+                            ReDim Preserve classList(1 To classCount)
+                            ReDim Preserve classCounts(1 To numBands, 1 To classCount)
+                        End If
+
+                        classList(classCount) = className
+                        classIdx = classCount
+                    End If
+
+                    classCounts(j, classIdx) = classCounts(j, classIdx) + 1
+                End If
+            End If
+        End If
+    Next r
+
+    If classCount = 0 Then Exit Sub
+
+    minSubjectN = GetMinSubjectN()
+    subjectTotalN = 0
+    For classIdx = 1 To classCount
+        For j = 1 To numBands
+            subjectTotalN = subjectTotalN + classCounts(j, classIdx)
+        Next j
+    Next classIdx
+    If subjectTotalN < minSubjectN Then Exit Sub
+
+    ReDim sortedClassList(1 To classCount)
+    For i = 1 To classCount
+        sortedClassList(i) = classList(i)
+    Next i
+    SortStringArray sortedClassList
+
+    destRowHeader = wsDest.Range(destTopLeft).Row
+    destColFirst = wsDest.Range(destTopLeft).Column
+
+    Set titleCell = wsDest.Cells(destRowHeader - 1, destColFirst)
+    With titleCell
+        .value = subjectTitle & " [" & UCase$(schemeKey) & "]"
+        .Font.Bold = True
+        .Font.Size = 11
+    End With
+
+    colNo = destColFirst + numBands + 1
+    colPctPass = destColFirst + numBands + 2
+    colPctFail = destColFirst + numBands + 3
+    colPctTop = destColFirst + numBands + 4
+    colMean = destColFirst + numBands + 5
+
+    With wsDest
+        .Cells(destRowHeader, destColFirst).value = "Class"
+
+        For j = 1 To numBands
+            .Cells(destRowHeader, destColFirst + j).value = gradeLabels(j)
+        Next j
+
+        .Cells(destRowHeader, colNo).value = "No."
+        .Cells(destRowHeader, colPctPass).value = pctPassLabel
+        .Cells(destRowHeader, colPctFail).value = pctFailLabel
+        .Cells(destRowHeader, colPctTop).value = pctTopLabel
+        .Cells(destRowHeader, colMean).value = meanLabel
+        .Rows(destRowHeader).Font.Bold = True
+    End With
+
+    ReDim totalArr(1 To numBands)
+    rowPtr = destRowHeader + 1
+
+    For i = LBound(sortedClassList) To UBound(sortedClassList)
+        classNameKey = sortedClassList(i)
+        classIdx = FindClassIndex(classList, classCount, classNameKey)
+        ReDim countsArr(1 To numBands)
+        For j = 1 To numBands
+            countsArr(j) = classCounts(j, classIdx)
+        Next j
+
+        total = 0
+        passCount = 0
+        failCount = 0
+        topCount = 0
+
+        For j = 1 To numBands
+            total = total + countsArr(j)
+            totalArr(j) = totalArr(j) + countsArr(j)
+
+            If j <= passMaxIdx Then passCount = passCount + countsArr(j)
+            If j >= failMinIdx Then failCount = failCount + countsArr(j)
+            If j <= topMaxIdx Then topCount = topCount + countsArr(j)
+        Next j
+
+        If total > 0 Then
+            meanValue = ComputeMeanBand(countsArr)
+        Else
+            meanValue = 0
+        End If
+
+        With wsDest
+            .Cells(rowPtr, destColFirst).value = classNameKey
+
+            For j = 1 To numBands
+                .Cells(rowPtr, destColFirst + j).value = countsArr(j)
+            Next j
+
+            .Cells(rowPtr, colNo).value = total
+
+            If total > 0 Then
+                .Cells(rowPtr, colPctPass).value = Round(passCount * 100# / total, 1)
+                .Cells(rowPtr, colPctFail).value = Round(failCount * 100# / total, 1)
+                .Cells(rowPtr, colPctTop).value = Round(topCount * 100# / total, 1)
+                .Cells(rowPtr, colMean).value = Round(meanValue, 1)
+            Else
+                .Cells(rowPtr, colPctPass).ClearContents
+                .Cells(rowPtr, colPctFail).ClearContents
+                .Cells(rowPtr, colPctTop).ClearContents
+                .Cells(rowPtr, colMean).ClearContents
+            End If
+        End With
+
+        ColourSubjectRow wsDest, rowPtr, destColFirst, numBands, topMaxIdx, failMinIdx, _
+                        colPctPass, colPctFail, colPctTop, colMean
+
+        rowPtr = rowPtr + 1
+    Next i
+
+    cohortRow = rowPtr
+    total = 0
+    passCount = 0
+    failCount = 0
+    topCount = 0
+
+    For j = 1 To numBands
+        total = total + totalArr(j)
+
+        If j <= passMaxIdx Then passCount = passCount + totalArr(j)
+        If j >= failMinIdx Then failCount = failCount + totalArr(j)
+        If j <= topMaxIdx Then topCount = topCount + totalArr(j)
+    Next j
+
+    If total > 0 Then
+        ReDim countsArr(1 To numBands)
+        For j = 1 To numBands
+            countsArr(j) = totalArr(j)
+        Next j
+        meanValue = ComputeMeanBand(countsArr)
+    Else
+        meanValue = 0
+    End If
+
+    With wsDest
+        .Cells(cohortRow, destColFirst).value = "COHORT"
+
+        For j = 1 To numBands
+            .Cells(cohortRow, destColFirst + j).value = totalArr(j)
+        Next j
+
+        .Cells(cohortRow, colNo).value = total
+
+        If total > 0 Then
+            .Cells(cohortRow, colPctPass).value = Round(passCount * 100# / total, 1)
+            .Cells(cohortRow, colPctFail).value = Round(failCount * 100# / total, 1)
+            .Cells(cohortRow, colPctTop).value = Round(topCount * 100# / total, 1)
+            .Cells(cohortRow, colMean).value = Round(meanValue, 1)
+        Else
+            .Cells(cohortRow, colPctPass).ClearContents
+            .Cells(cohortRow, colPctFail).ClearContents
+            .Cells(cohortRow, colPctTop).ClearContents
+            .Cells(cohortRow, colMean).ClearContents
+        End If
+    End With
+
+    ColourSubjectRow wsDest, cohortRow, destColFirst, numBands, topMaxIdx, failMinIdx, _
+                    colPctPass, colPctFail, colPctTop, colMean
+
+    Set rngTable = wsDest.Range(wsDest.Cells(destRowHeader, destColFirst), _
+                                wsDest.Cells(cohortRow, colMean))
+
+    With rngTable.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(200, 200, 200)
+        .Weight = xlThin
+    End With
+
+    wsDest.Range(wsDest.Cells(destRowHeader + 1, colPctPass), _
+                 wsDest.Cells(cohortRow, colPctTop)).NumberFormat = "0.0"
+    wsDest.Range(wsDest.Cells(destRowHeader + 1, colMean), _
+                 wsDest.Cells(cohortRow, colMean)).NumberFormat = "0.0"
+
+    wsDest.Columns(destColFirst + 1).Resize(, colMean - destColFirst).AutoFit
+    wsDest.Columns(destColFirst).ColumnWidth = 10
+
+    Set rngCohortRow = wsDest.Range(wsDest.Cells(cohortRow, destColFirst), _
+                                    wsDest.Cells(cohortRow, colMean))
+    rngCohortRow.Interior.Color = RGB(255, 242, 204)
+    rngCohortRow.Font.Bold = True
+
+    Set rngHeader = wsDest.Range(wsDest.Cells(destRowHeader, destColFirst + 1), _
+                                 wsDest.Cells(destRowHeader, destColFirst + numBands))
+    Set rngData = wsDest.Range(wsDest.Cells(cohortRow, destColFirst + 1), _
+                               wsDest.Cells(cohortRow, destColFirst + numBands))
+
+    leftPos = wsDest.Columns(colMean + 2).Left
+    topPos = wsDest.Rows(destRowHeader - 1).Top
+    chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
+    chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 3).Height
+
+    Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
+    Set ch = co.Chart
+
+    With ch
+        .ChartType = xlColumnClustered
+        .HasTitle = False
+        .SetSourceData Source:=rngData
+        .SeriesCollection(1).XValues = rngHeader
+        .Legend.Delete
+
+        On Error Resume Next
+        .Axes(xlValue).HasMajorGridlines = False
+        .Axes(xlCategory).HasMajorGridlines = False
+        On Error GoTo ErrHandler
+
+        .ChartArea.Format.line.Visible = msoFalse
+        .PlotArea.Format.line.Visible = msoFalse
+        .ChartArea.Format.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .PlotArea.Format.Fill.Visible = msoFalse
+
+        .SeriesCollection(1).HasDataLabels = True
+
+        Set s = .SeriesCollection(1)
+        For j = 1 To numBands
+            Set pt = s.Points(j)
+            pt.Format.Fill.ForeColor.RGB = pastelColors(j)
+            pt.Format.Fill.Solid
+        Next j
+
+        .ChartGroups(1).GapWidth = 30
+    End With
+
+    ' Validity panel (scheme-aware)
+    EvaluateDistributionForScheme totalArr, total, schemeKey, validityFlag, patternType, line1, line2, line3
+    DrawValidityPanel wsDest, co, validityFlag, patternType, line1, line2, line3
+
+    outEndRow = cohortRow
+    Exit Sub
+
+ErrHandler:
+    ' Skip this subject block quietly.
+End Sub
+
+Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
+                              ByVal validityFlag As String, ByVal patternType As String, _
+                              ByVal line1 As String, ByVal line2 As String, ByVal line3 As String)
+    Dim panelLeft As Double, panelTop As Double
+    Dim panelWidth As Double, panelHeight As Double
+    Dim shp As Shape
+    Dim fullText As String
+    Dim fillColor As Long, borderColor As Long, fontColor As Long
+
+    If co Is Nothing Then Exit Sub
+    If co.Width <= 0 Or co.Height <= 0 Then Exit Sub
+
+    panelHeight = co.Height
+    panelWidth = co.Width * 1.65
+    panelLeft = co.Left + co.Width + 10
+    panelTop = co.Top
+
+    fullText = "Flag: " & validityFlag & " | Pattern: " & patternType & vbCrLf & vbCrLf & _
+               line1 & vbCrLf & vbCrLf & line2 & vbCrLf & vbCrLf & line3
+
+    Select Case UCase$(Trim$(validityFlag))
+        Case "LOW N"
+            fillColor = RGB(255, 242, 204): borderColor = RGB(191, 144, 0): fontColor = RGB(120, 63, 4)
+        Case "SKEWED"
+            fillColor = RGB(252, 228, 214): borderColor = RGB(192, 80, 77): fontColor = RGB(148, 55, 49)
+        Case "MIXED"
+            fillColor = RGB(217, 225, 242): borderColor = RGB(79, 129, 189): fontColor = RGB(47, 84, 150)
+        Case "VALID"
+            fillColor = RGB(226, 240, 217): borderColor = RGB(118, 146, 60): fontColor = RGB(55, 86, 35)
+        Case Else
+            fillColor = RGB(242, 242, 242): borderColor = RGB(166, 166, 166): fontColor = RGB(89, 89, 89)
+    End Select
+
+    Set shp = ws.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, panelLeft, panelTop, panelWidth, panelHeight)
+    shp.Name = "FlagPanel_" & co.Name & "_" & ws.Index
+
+    With shp
+        .Fill.ForeColor.RGB = fillColor
+        .line.ForeColor.RGB = borderColor
+        .line.Weight = 1
+
+        With .TextFrame2
+            .TextRange.text = fullText
+            .TextRange.Font.Size = 10
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Fill.ForeColor.RGB = fontColor
+            .MarginLeft = 8
+            .MarginRight = 8
+            .MarginTop = 6
+            .MarginBottom = 6
+            .WordWrap = True
+            .AutoSize = msoFalse
+            .TextRange.ParagraphFormat.Alignment = msoAlignLeft
+        End With
+    End With
+End Sub
+
+'---------------------------------------------------------
+' ROW COLOURING
+'---------------------------------------------------------
+Private Sub ColourSubjectRow(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal firstCol As Long, _
+                             ByVal numBands As Long, ByVal topMaxIdx As Long, ByVal failMinIdx As Long, _
+                             ByVal colPctPass As Long, ByVal colPctFail As Long, _
+                             ByVal colPctTop As Long, ByVal colMean As Long)
+    Dim v As Variant
+    Dim j As Long
+    Dim bandCol As Long
+
+    For j = 1 To numBands
+        bandCol = firstCol + j
+        v = ws.Cells(rowNum, bandCol).value
+
+        If IsNumeric(v) And v > 0 Then
+            If j <= topMaxIdx Then
+                ws.Cells(rowNum, bandCol).Font.Color = RGB(0, 128, 0)
+            ElseIf j >= failMinIdx Then
+                ws.Cells(rowNum, bandCol).Font.Color = RGB(192, 0, 0)
+            Else
+                ws.Cells(rowNum, bandCol).Font.Color = RGB(0, 0, 0)
+            End If
+        Else
+            ws.Cells(rowNum, bandCol).Font.Color = RGB(0, 0, 0)
+        End If
+    Next j
+
+    ws.Cells(rowNum, colPctPass).Font.Color = RGB(0, 0, 0)
+
+    v = ws.Cells(rowNum, colPctFail).value
+    If IsNumeric(v) And v > 0 Then
+        ws.Cells(rowNum, colPctFail).Font.Color = RGB(192, 0, 0)
+    Else
+        ws.Cells(rowNum, colPctFail).Font.Color = RGB(0, 0, 0)
+    End If
+
+    v = ws.Cells(rowNum, colPctTop).value
+    If IsNumeric(v) And v > 0 Then
+        ws.Cells(rowNum, colPctTop).Font.Color = RGB(0, 128, 0)
+    Else
+        ws.Cells(rowNum, colPctTop).Font.Color = RGB(0, 0, 0)
+    End If
+
+    ws.Cells(rowNum, colMean).Font.Color = RGB(0, 0, 0)
+End Sub
+
+'---------------------------------------------------------
+' GRADE SCHEME HELPERS
+'---------------------------------------------------------
+Private Function InitGradeScheme(ByVal schemeKey As String, _
+                                 ByRef gradeLabels() As String, _
+                                 ByRef passMaxIdx As Long, _
+                                 ByRef failMinIdx As Long, _
+                                 ByRef topMaxIdx As Long, _
+                                 ByRef pctPassLabel As String, _
+                                 ByRef pctFailLabel As String, _
+                                 ByRef pctTopLabel As String, _
+                                 ByRef meanLabel As String) As Boolean
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            ReDim gradeLabels(1 To 9)
+            gradeLabels(1) = "A1"
+            gradeLabels(2) = "A2"
+            gradeLabels(3) = "B3"
+            gradeLabels(4) = "B4"
+            gradeLabels(5) = "C5"
+            gradeLabels(6) = "C6"
+            gradeLabels(7) = "D7"
+            gradeLabels(8) = "E8"
+            gradeLabels(9) = "F9"
+
+            passMaxIdx = 6
+            failMinIdx = 7
+            topMaxIdx = 2
+
+            pctPassLabel = "%A1 - C6"
+            pctFailLabel = "%D7 - F9"
+            pctTopLabel = "%A1 - A2"
+            meanLabel = "MSG"
+
+        Case "G2"
+            ReDim gradeLabels(1 To 6)
+            gradeLabels(1) = "1"
+            gradeLabels(2) = "2"
+            gradeLabels(3) = "3"
+            gradeLabels(4) = "4"
+            gradeLabels(5) = "5"
+            gradeLabels(6) = "6"
+
+            passMaxIdx = 5
+            failMinIdx = 6
+            topMaxIdx = 2
+
+            pctPassLabel = "%1 - 5"
+            pctFailLabel = "%6"
+            pctTopLabel = "%1 - 2"
+            meanLabel = "Mean"
+
+        Case "G1"
+            ReDim gradeLabels(1 To 5)
+            gradeLabels(1) = "A"
+            gradeLabels(2) = "B"
+            gradeLabels(3) = "C"
+            gradeLabels(4) = "D"
+            gradeLabels(5) = "E"
+
+            passMaxIdx = 4
+            failMinIdx = 5
+            topMaxIdx = 2
+
+            pctPassLabel = "%A - D"
+            pctFailLabel = "%E"
+            pctTopLabel = "%A - B"
+            meanLabel = "Mean"
+
+        Case Else
+            InitGradeScheme = False
+            Exit Function
+    End Select
+
+    InitGradeScheme = True
+End Function
+
+Private Sub InitPastelPalette(ByRef pastelColors() As Long)
+    pastelColors(1) = RGB(0, 150, 136)
+    pastelColors(2) = RGB(77, 182, 172)
+    pastelColors(3) = RGB(129, 199, 132)
+    pastelColors(4) = RGB(200, 230, 201)
+    pastelColors(5) = RGB(255, 245, 157)
+    pastelColors(6) = RGB(255, 224, 130)
+    pastelColors(7) = RGB(255, 204, 128)
+    pastelColors(8) = RGB(255, 171, 145)
+    pastelColors(9) = RGB(239, 83, 80)
+End Sub
+
+Private Function NormalizeGradeForScheme(ByVal gradeRaw As String, ByVal schemeKey As String) As String
+    Dim g As String
+    g = UCase$(Trim$(gradeRaw))
+
+    If g = "-" Or g = "AB" Then g = ""
+
+    Select Case UCase$(schemeKey)
+        Case "G3"
+            If g = "9" Then g = "F9"
+        Case Else
+            ' No special mapping needed.
+    End Select
+
+    NormalizeGradeForScheme = g
+End Function
+
+Private Function GradeIndexByScheme(ByVal gradeStr As String, ByRef gradeLabels() As String) As Long
+    Dim k As Long
+    For k = LBound(gradeLabels) To UBound(gradeLabels)
+        If gradeStr = gradeLabels(k) Then
+            GradeIndexByScheme = k
+            Exit Function
+        End If
+    Next k
+    GradeIndexByScheme = 0
+End Function
+
+Private Function ComputeMeanBand(ByRef countsArr() As Long) As Double
+    Dim i As Long
+    Dim total As Long
+    Dim weightedSum As Long
+
+    For i = LBound(countsArr) To UBound(countsArr)
+        weightedSum = weightedSum + countsArr(i) * i
+        total = total + countsArr(i)
+    Next i
+
+    If total > 0 Then
+        ComputeMeanBand = weightedSum / total
+    Else
+        ComputeMeanBand = 0
+    End If
+End Function
+
+'---------------------------------------------------------
+' DETECTION HELPERS
+'---------------------------------------------------------
+Private Function IsLikelySubjectGradeColumn(ByVal header As String) As Boolean
+    Dim h As String
+    h = UCase$(Trim$(header))
+
+    If Right$(h, 7) = "(GRADE)" Then
+        IsLikelySubjectGradeColumn = True
+        Exit Function
+    End If
+
+    ' Backward compatibility for older staging sheets with no suffix.
+    If InStr(1, h, " - G1", vbTextCompare) > 0 _
+       Or InStr(1, h, " - G2", vbTextCompare) > 0 _
+       Or InStr(1, h, " - G3", vbTextCompare) > 0 Then
+        IsLikelySubjectGradeColumn = True
+    End If
+End Function
+
+Private Function StripGradeHeaderSuffix(ByVal header As String) As String
+    Dim h As String
+    h = Trim$(header)
+
+    If Len(h) >= 7 Then
+        If UCase$(Right$(h, 7)) = "(GRADE)" Then
+            StripGradeHeaderSuffix = Trim$(Left$(h, Len(h) - 7))
+            Exit Function
+        End If
+    End If
+
+    StripGradeHeaderSuffix = h
+End Function
+
+Private Function GetGradeSchemeKey(ByVal ws As Worksheet, ByVal gradeCol As Long, ByVal header As String) As String
+    Dim keyFromHeader As String
+
+    keyFromHeader = InferSchemeFromHeader(header)
+    If keyFromHeader <> "" Then
+        GetGradeSchemeKey = keyFromHeader
+        Exit Function
+    End If
+
+    GetGradeSchemeKey = InferSchemeFromValues(ws, gradeCol)
+End Function
+
+Private Function InferSchemeFromHeader(ByVal header As String) As String
+    Dim h As String
+    h = UCase$(Trim$(header))
+
+    If InStr(1, h, "- G1", vbTextCompare) > 0 Then
+        InferSchemeFromHeader = "G1"
+    ElseIf InStr(1, h, "- G2", vbTextCompare) > 0 Then
+        InferSchemeFromHeader = "G2"
+    ElseIf InStr(1, h, "- G3", vbTextCompare) > 0 Then
+        InferSchemeFromHeader = "G3"
+    End If
+End Function
+
+Private Function InferSchemeFromValues(ByVal ws As Worksheet, ByVal gradeCol As Long) As String
+    Dim r As Long, lastRow As Long
+    Dim v As String
+    Dim g1Hits As Long, g2Hits As Long, g3Hits As Long
+    Dim maxSamples As Long
+
+    lastRow = ws.Cells(ws.Rows.count, gradeCol).End(xlUp).Row
+    maxSamples = 200
+
+    For r = 2 To lastRow
+        v = UCase$(Trim$(CStr(ws.Cells(r, gradeCol).value)))
+
+        If v <> "" And v <> "-" And v <> "AB" Then
+            If IsGradeInScheme(v, "G1") Then g1Hits = g1Hits + 1
+            If IsGradeInScheme(v, "G2") Then g2Hits = g2Hits + 1
+            If IsGradeInScheme(v, "G3") Then g3Hits = g3Hits + 1
+        End If
+
+        If r - 1 >= maxSamples Then Exit For
+    Next r
+
+    If g3Hits >= g2Hits And g3Hits >= g1Hits And g3Hits >= 3 Then
+        InferSchemeFromValues = "G3"
+    ElseIf g2Hits >= g1Hits And g2Hits >= 3 Then
+        InferSchemeFromValues = "G2"
+    ElseIf g1Hits >= 3 Then
+        InferSchemeFromValues = "G1"
+    Else
+        InferSchemeFromValues = ""
+    End If
+End Function
+
+Private Function IsGradeInScheme(ByVal v As String, ByVal schemeKey As String) As Boolean
+    Dim g As String
+    g = UCase$(Trim$(v))
+
+    Select Case UCase$(schemeKey)
+        Case "G1"
+            IsGradeInScheme = (g = "A" Or g = "B" Or g = "C" Or g = "D" Or g = "E")
+        Case "G2"
+            IsGradeInScheme = (g = "1" Or g = "2" Or g = "3" Or g = "4" Or g = "5" Or g = "6")
+        Case "G3"
+            IsGradeInScheme = (g = "A1" Or g = "A2" Or g = "B3" Or g = "B4" Or g = "C5" Or _
+                               g = "C6" Or g = "D7" Or g = "E8" Or g = "F9" Or g = "9")
+    End Select
+End Function
+
+'---------------------------------------------------------
+' SHEET NAME HELPERS
+'---------------------------------------------------------
+Private Function CleanSheetNameFragment(ByVal txt As String) As String
+    Dim s As String
+    s = txt
+    s = Replace(s, ":", "")
+    s = Replace(s, "\", "")
+    s = Replace(s, "/", "")
+    s = Replace(s, "?", "")
+    s = Replace(s, "*", "")
+    s = Replace(s, "[", "")
+    s = Replace(s, "]", "")
+    CleanSheetNameFragment = s
+End Function
+
+Private Function BuildSecDestSheetName(ByVal levelCode As String, ByVal examLabel As String) As String
+    Dim prefix As String
+    Dim yearPart As String
+    Dim baseLabel As String
+    Dim safeBase As String
+    Dim maxShort As Long
+    Dim safeName As String
+    Dim yearCandidate As String
+
+    prefix = levelCode & "_Subj Analysis_"
+    yearPart = ""
+
+    If Len(examLabel) >= 4 Then
+        yearCandidate = Right$(examLabel, 4)
+        If IsNumeric(yearCandidate) Then yearPart = yearCandidate
+    End If
+
+    If yearPart <> "" Then
+        baseLabel = Left$(examLabel, Len(examLabel) - 4)
+
+        Do While Len(baseLabel) > 0 And _
+              (Right$(baseLabel, 1) = "_" Or Right$(baseLabel, 1) = " " Or Right$(baseLabel, 1) = "-")
+            baseLabel = Left$(baseLabel, Len(baseLabel) - 1)
+        Loop
+
+        safeBase = CleanSheetNameFragment(baseLabel)
+        If safeBase = "" Then safeBase = "Exam"
+
+        maxShort = 31 - Len(prefix) - 1 - Len(yearPart)
+        If maxShort < 1 Then maxShort = 1
+        If Len(safeBase) > maxShort Then safeBase = Left$(safeBase, maxShort)
+
+        safeName = prefix & safeBase & "_" & yearPart
+        If Len(safeName) > 31 Then safeName = Left$(safeName, 31)
+    Else
+        safeName = prefix & examLabel
+        safeName = CleanSheetNameFragment(safeName)
+        If Len(safeName) > 31 Then safeName = Left$(safeName, 31)
+    End If
+
+    BuildSecDestSheetName = safeName
+End Function
+
+Private Function GetMinSubjectN() As Long
+    Dim ws As Worksheet
+    Dim v As Variant
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        GetMinSubjectN = DEFAULT_MIN_SUBJECT_N
+        Exit Function
+    End If
+
+    ' Optional override: Settings!L6
+    v = ws.Range("L6").value
+    If IsNumeric(v) Then
+        GetMinSubjectN = CLng(v)
+        If GetMinSubjectN < 1 Then GetMinSubjectN = DEFAULT_MIN_SUBJECT_N
+    Else
+        GetMinSubjectN = DEFAULT_MIN_SUBJECT_N
+    End If
+End Function
+
+Private Function InferLevelCodeFromClass(ByVal className As String) As String
+    Dim s As String
+    Dim i As Long
+    Dim ch As String
+
+    s = UCase$(Trim$(className))
+    If s = "" Then Exit Function
+
+    ' Preferred match for class names like S1-..., S2 ..., etc.
+    For i = 1 To Len(s) - 1
+        If Mid$(s, i, 1) = "S" Then
+            ch = Mid$(s, i + 1, 1)
+            If ch >= "1" And ch <= "4" Then
+                InferLevelCodeFromClass = "S" & ch
+                Exit Function
+            End If
+        End If
+    Next i
+
+    ' Fallback: first standalone digit 1..4 in the class string.
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If ch >= "1" And ch <= "4" Then
+            InferLevelCodeFromClass = "S" & ch
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function FindClassIndex(ByRef classList() As String, ByVal classCount As Long, ByVal className As String) As Long
+    Dim i As Long
+    For i = 1 To classCount
+        If StrComp(classList(i), className, vbTextCompare) = 0 Then
+            FindClassIndex = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+'---------------------------------------------------------
+' GENERIC HELPERS
+'---------------------------------------------------------
+Private Function FindHeaderColumn(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal headerName As String) As Long
+    Dim lastCol As Long, c As Long
+    Dim h As String
+
+    lastCol = ws.Cells(headerRow, ws.Columns.count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        h = Trim$(CStr(ws.Cells(headerRow, c).value))
+        If StrComp(h, headerName, vbTextCompare) = 0 Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+
+    FindHeaderColumn = 0
+End Function
+
+Private Sub SortStringArray(ByRef arr() As String)
+    Dim i As Long, j As Long
+    Dim temp As String
+
+    For i = LBound(arr) To UBound(arr) - 1
+        For j = i + 1 To UBound(arr)
+            If arr(j) < arr(i) Then
+                temp = arr(i)
+                arr(i) = arr(j)
+                arr(j) = temp
+            End If
+        Next j
+    Next i
+End Sub
+
