@@ -529,7 +529,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
 
                         If usedDownward And mappedBand > 0 Then
                             If remarksText <> "" Then remarksText = remarksText & ", "
-                            remarksText = remarksText & subjectNames(i) & " " & UCase$(Trim$(subjectSchemeKeys(i))) & " " & gradeStr & " -> " & mappedLabel
+                            remarksText = remarksText & subjectNames(i) & " " & gradeStr & " -> " & mappedLabel
                         End If
                     End If
                 Next i
