@@ -378,27 +378,26 @@ NextSubject:
             End If
 
             wsOut.Cells(outRow, 1).value = levelCode
-            wsOut.Cells(outRow, 2).value = wsSrc.Name
-            wsOut.Cells(outRow, 3).value = className
-            wsOut.Cells(outRow, 4).value = regNo
-            wsOut.Cells(outRow, 5).value = studentName
-            wsOut.Cells(outRow, 6).value = attemptedCount
-            wsOut.Cells(outRow, 7).value = passCount
-            wsOut.Cells(outRow, 8).value = failCount
-            wsOut.Cells(outRow, 9).value = failedSubjects
-            wsOut.Cells(outRow, 10).value = riskBand
-            wsOut.Cells(outRow, 11).value = RiskBandRank(riskBand)
-            wsOut.Cells(outRow, 13).value = attemptedSubjects
-            wsOut.Cells(outRow, 14).value = vrSubjects
+            wsOut.Cells(outRow, 2).value = className
+            wsOut.Cells(outRow, 3).value = regNo
+            wsOut.Cells(outRow, 4).value = studentName
+            wsOut.Cells(outRow, 5).value = attemptedCount
+            wsOut.Cells(outRow, 6).value = passCount
+            wsOut.Cells(outRow, 7).value = failCount
+            wsOut.Cells(outRow, 8).value = failedSubjects
+            wsOut.Cells(outRow, 9).value = riskBand
+            wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
+            wsOut.Cells(outRow, 11).value = attemptedSubjects
+            wsOut.Cells(outRow, 12).value = vrSubjects
 
             If riskBand = "AT RISK" Then
-                wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 10)).Interior.Color = RGB(255, 230, 230)
-                wsOut.Cells(outRow, 10).Font.Color = RGB(192, 0, 0)
-                wsOut.Cells(outRow, 10).Font.Bold = True
+                wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
+                wsOut.Cells(outRow, 9).Font.Color = RGB(192, 0, 0)
+                wsOut.Cells(outRow, 9).Font.Bold = True
             ElseIf riskBand = "MONITOR" Then
-                wsOut.Cells(outRow, 10).Font.Color = RGB(156, 101, 0)
+                wsOut.Cells(outRow, 9).Font.Color = RGB(156, 101, 0)
             Else
-                wsOut.Cells(outRow, 10).Font.Color = RGB(0, 97, 0)
+                wsOut.Cells(outRow, 9).Font.Color = RGB(0, 97, 0)
             End If
 
             outRow = outRow + 1
@@ -596,18 +595,17 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Range("A2").Font.Italic = True
 
     wsOut.Cells(4, 1).value = "Level"
-    wsOut.Cells(4, 2).value = "Source Sheet"
-    wsOut.Cells(4, 3).value = "Class"
-    wsOut.Cells(4, 4).value = "RegNo"
-    wsOut.Cells(4, 5).value = "Name"
-    wsOut.Cells(4, 6).value = "Subjects Attempted"
-    wsOut.Cells(4, 7).value = "Subjects Passed"
-    wsOut.Cells(4, 8).value = "Subjects Failed"
-    wsOut.Cells(4, 9).value = "Failed Subjects"
-    wsOut.Cells(4, 10).value = "Risk Band"
-    wsOut.Cells(4, 11).value = "SortKey"
-    wsOut.Cells(4, 13).value = "Attempted Subjects"
-    wsOut.Cells(4, 14).value = "VR Subjects"
+    wsOut.Cells(4, 2).value = "Class"
+    wsOut.Cells(4, 3).value = "RegNo"
+    wsOut.Cells(4, 4).value = "Name"
+    wsOut.Cells(4, 5).value = "Subjects Attempted"
+    wsOut.Cells(4, 6).value = "Subjects Passed"
+    wsOut.Cells(4, 7).value = "Subjects Failed"
+    wsOut.Cells(4, 8).value = "Failed Subjects"
+    wsOut.Cells(4, 9).value = "Risk Band"
+    wsOut.Cells(4, 10).value = "SortKey"
+    wsOut.Cells(4, 11).value = "Attempted Subjects"
+    wsOut.Cells(4, 12).value = "VR Subjects"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
@@ -616,35 +614,34 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     If lastRow >= 5 Then
-        Set sortRange = wsOut.Range("A4:N" & lastRow)
-        sortRange.Sort Key1:=wsOut.Range("K5"), Order1:=xlAscending, _
-                       Key2:=wsOut.Range("H5"), Order2:=xlDescending, _
-                       Key3:=wsOut.Range("E5"), Order3:=xlAscending, _
+        Set sortRange = wsOut.Range("A4:L" & lastRow)
+        sortRange.Sort Key1:=wsOut.Range("J5"), Order1:=xlAscending, _
+                       Key2:=wsOut.Range("G5"), Order2:=xlDescending, _
+                       Key3:=wsOut.Range("D5"), Order3:=xlAscending, _
                        Header:=xlYes
     End If
 
-    wsOut.Columns("A:N").AutoFit
+    wsOut.Columns("A:L").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
-    wsOut.Columns("B").ColumnWidth = 24
-    wsOut.Columns("C").ColumnWidth = 15
-    wsOut.Columns("D").ColumnWidth = 5
-    wsOut.Columns("E").ColumnWidth = 24
-    wsOut.Columns("F").ColumnWidth = 10
+    wsOut.Columns("B").ColumnWidth = 15
+    wsOut.Columns("C").ColumnWidth = 5
+    wsOut.Columns("D").ColumnWidth = 24
+    wsOut.Columns("E").ColumnWidth = 10
+    wsOut.Columns("F").ColumnWidth = 9
     wsOut.Columns("G").ColumnWidth = 9
-    wsOut.Columns("H").ColumnWidth = 9
-    wsOut.Columns("F:H").HorizontalAlignment = xlCenter
-    wsOut.Columns("I").ColumnWidth = 40
-    wsOut.Columns("I").WrapText = True
-    wsOut.Columns("M").ColumnWidth = 40
-    wsOut.Columns("M").WrapText = True
-    wsOut.Columns("N").ColumnWidth = 40
-    wsOut.Columns("N").WrapText = True
-    wsOut.Columns("K").EntireColumn.Hidden = True
-    wsOut.Range("F4:H4").WrapText = True
-    wsOut.Range("A4:N4").VerticalAlignment = xlCenter
+    wsOut.Columns("E:G").HorizontalAlignment = xlCenter
+    wsOut.Columns("H").ColumnWidth = 40
+    wsOut.Columns("H").WrapText = True
+    wsOut.Columns("K").ColumnWidth = 40
+    wsOut.Columns("K").WrapText = True
+    wsOut.Columns("L").ColumnWidth = 40
+    wsOut.Columns("L").WrapText = True
+    wsOut.Columns("J").EntireColumn.Hidden = True
+    wsOut.Range("E4:G4").WrapText = True
+    wsOut.Range("A4:L4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:N" & lastRow)
+        Set rngTable = wsOut.Range("A4:L" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
