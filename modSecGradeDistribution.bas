@@ -421,6 +421,7 @@ End Sub
 
 Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim sortRange As Range
+    Dim rngTable As Range
 
     If lastRow >= 5 Then
         Set sortRange = wsOut.Range("A4:K" & lastRow)
@@ -433,11 +434,21 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("A:J").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 24
-    wsOut.Columns("C").ColumnWidth = 10
+    wsOut.Columns("C").ColumnWidth = 15
     wsOut.Columns("D").ColumnWidth = 10
     wsOut.Columns("E").ColumnWidth = 24
     wsOut.Columns("I").ColumnWidth = 40
+    wsOut.Columns("I").WrapText = True
     wsOut.Columns("K").EntireColumn.Hidden = True
+
+    If lastRow >= 4 Then
+        Set rngTable = wsOut.Range("A4:J" & lastRow)
+        With rngTable.Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(200, 200, 200)
+            .Weight = xlThin
+        End With
+    End If
 End Sub
 
 '---------------------------------------------------------
