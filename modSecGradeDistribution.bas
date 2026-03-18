@@ -242,6 +242,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim subjectCols() As Long
     Dim subjectNames() As String
     Dim subjectSchemeKeys() As String
+    Dim subjectScoreCols() As Long
     Dim subjCount As Long
     Dim c As Long, r As Long, i As Long
     Dim header As String, schemeKey As String
@@ -250,8 +251,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim attemptedCount As Long, passCount As Long, failCount As Long
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
-    Dim vrSubjects As String, rawGrade As String
+    Dim vrSubjects As String, rawGrade As String, rawScore As String
     Dim subjectName As String
+    Dim isVrSubject As Boolean
 
     On Error GoTo FailSafe
 
@@ -298,9 +300,11 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
                     ReDim Preserve subjectSchemeKeys(1 To subjCount)
+                    ReDim Preserve subjectScoreCols(1 To subjCount)
                     subjectCols(subjCount) = c
                     subjectNames(subjCount) = subjectName
                     subjectSchemeKeys(subjCount) = schemeKey
+                    subjectScoreCols(subjCount) = FindScoreColumnForSubject(wsSrc, 1, subjectName)
                 End If
             End If
         End If
@@ -337,10 +341,16 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         For i = 1 To subjCount
             rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
             gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
+            rawScore = ""
+            If subjectScoreCols(i) > 0 Then
+                rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
+            End If
 
-            If rawGrade = "VR" Then
+            isVrSubject = (rawGrade = "VR" Or rawScore = "VR")
+            If isVrSubject Then
                 If vrSubjects <> "" Then vrSubjects = vrSubjects & ", "
                 vrSubjects = vrSubjects & subjectNames(i)
+                GoTo NextSubject
             End If
 
             If gradeStr <> "" Then
@@ -355,6 +365,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                     passCount = passCount + 1
                 End If
             End If
+NextSubject:
         Next i
 
         If attemptedCount > 0 Then
@@ -1451,6 +1462,41 @@ Private Function SubjectAlreadyAdded(ByRef subjectNames() As String, _
             Exit Function
         End If
     Next i
+End Function
+
+Private Function FindScoreColumnForSubject(ByVal ws As Worksheet, _
+                                           ByVal headerRow As Long, _
+                                           ByVal subjectName As String) As Long
+    Dim lastCol As Long, c As Long
+    Dim h As String
+    Dim baseName As String
+
+    lastCol = ws.Cells(headerRow, ws.Columns.count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        h = Trim$(CStr(ws.Cells(headerRow, c).value))
+        If InStr(1, UCase$(h), "SCORE", vbTextCompare) > 0 Then
+            baseName = NormalizeSubjectHeaderBase(h)
+            If StrComp(baseName, NormalizeSubjectHeaderBase(subjectName), vbTextCompare) = 0 Then
+                FindScoreColumnForSubject = c
+                Exit Function
+            End If
+        End If
+    Next c
+End Function
+
+Private Function NormalizeSubjectHeaderBase(ByVal headerText As String) As String
+    Dim h As String
+    h = Trim$(headerText)
+
+    If UCase$(Right$(h, 7)) = "(GRADE)" Then
+        h = Trim$(Left$(h, Len(h) - 7))
+    End If
+
+    If UCase$(Right$(h, 7)) = "(SCORE)" Then
+        h = Trim$(Left$(h, Len(h) - 7))
+    End If
+
+    NormalizeSubjectHeaderBase = h
 End Function
 
 Private Function FindClassIndex(ByRef classList() As String, ByVal classCount As Long, ByVal className As String) As Long
