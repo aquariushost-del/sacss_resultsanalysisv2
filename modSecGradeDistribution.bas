@@ -2,6 +2,7 @@ Attribute VB_Name = "modSecGradeDistribution"
 Option Explicit
 
 Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
+Private Const DEFAULT_AT_RISK_FAIL_THRESHOLD As Long = 3
 Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 
 '=========================================================
@@ -34,6 +35,79 @@ Public Sub BuildAllSec_SubjectAnalysis()
 
 ErrHandler:
     MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
+End Sub
+
+'---------------------------------------------------------
+' ENTRY POINT - BUILD STUDENTS AT RISK SUMMARY (SEC)
+'---------------------------------------------------------
+Public Sub BuildSec_AtRiskSummary()
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim wsOut As Worksheet
+    Dim outRow As Long
+    Dim addedRows As Long
+    Dim threshold As Long
+
+    On Error GoTo ErrHandler
+
+    Set wb = ThisWorkbook
+    threshold = GetAtRiskFailThreshold()
+
+    On Error Resume Next
+    Set wsOut = wb.Worksheets("AtRisk_SEC")
+    On Error GoTo ErrHandler
+
+    If wsOut Is Nothing Then
+        Set wsOut = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.count))
+        wsOut.Name = "AtRisk_SEC"
+    Else
+        wsOut.Cells.Clear
+    End If
+
+    wsOut.Range("A1").value = "SEC Students At Risk Summary"
+    wsOut.Range("A1").Font.Bold = True
+    wsOut.Range("A1").Font.Size = 14
+
+    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold
+    wsOut.Range("A2").Font.Italic = True
+
+    wsOut.Cells(4, 1).value = "Level"
+    wsOut.Cells(4, 2).value = "Source Sheet"
+    wsOut.Cells(4, 3).value = "Class"
+    wsOut.Cells(4, 4).value = "RegNo"
+    wsOut.Cells(4, 5).value = "Name"
+    wsOut.Cells(4, 6).value = "Subjects Attempted"
+    wsOut.Cells(4, 7).value = "Subjects Passed"
+    wsOut.Cells(4, 8).value = "Subjects Failed"
+    wsOut.Cells(4, 9).value = "Risk Band"
+    wsOut.Rows(4).Font.Bold = True
+
+    outRow = 5
+    For Each ws In wb.Worksheets
+        addedRows = AppendSecAtRiskFromSourceSheet(ws, wsOut, outRow, threshold)
+        If addedRows > 0 Then outRow = outRow + addedRows
+    Next ws
+
+    If outRow = 5 Then
+        wsOut.Cells(outRow, 1).value = "No eligible SEC result rows found."
+        outRow = outRow + 1
+    End If
+
+    wsOut.Columns("A:I").AutoFit
+    wsOut.Columns("A").ColumnWidth = 8
+    wsOut.Columns("B").ColumnWidth = 24
+    wsOut.Columns("C").ColumnWidth = 10
+    wsOut.Columns("D").ColumnWidth = 10
+    wsOut.Columns("E").ColumnWidth = 24
+
+    wsOut.Activate
+    wsOut.Range("A1").Select
+
+    MsgBox "SEC at-risk summary built on sheet 'AtRisk_SEC'.", vbInformation
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Error in BuildSec_AtRiskSummary: " & Err.Description, vbCritical
 End Sub
 
 '---------------------------------------------------------
@@ -176,6 +250,153 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
 ErrHandler:
     ' Skip broken sheets and continue with the rest.
 End Sub
+
+Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
+                                                ByVal wsOut As Worksheet, _
+                                                ByVal startOutRow As Long, _
+                                                ByVal atRiskFailThreshold As Long) As Long
+    Dim classCol As Long, nameCol As Long, regCol As Long
+    Dim lastRow As Long, lastCol As Long
+    Dim firstClass As String, levelCode As String
+    Dim subjectCols() As Long
+    Dim subjectSchemeKeys() As String
+    Dim subjCount As Long
+    Dim c As Long, r As Long, i As Long
+    Dim header As String, schemeKey As String
+    Dim className As String, studentName As String, regNo As String
+    Dim gradeStr As String
+    Dim attemptedCount As Long, passCount As Long, failCount As Long
+    Dim outRow As Long
+    Dim riskBand As String
+
+    On Error GoTo FailSafe
+
+    If LCase$(wsSrc.Name) Like "*settings*" _
+       Or LCase$(wsSrc.Name) Like "*config*" _
+       Or LCase$(wsSrc.Name) Like "*menu*" _
+       Or LCase$(wsSrc.Name) Like "*lookup*" _
+       Or LCase$(wsSrc.Name) Like "*summary*" _
+       Or LCase$(wsSrc.Name) Like "*template*" _
+       Or InStr(1, LCase$(wsSrc.Name), "_subj analysis_") > 0 _
+       Or InStr(1, LCase$(wsSrc.Name), "dashboard") > 0 Then
+        Exit Function
+    End If
+
+    classCol = FindHeaderColumn(wsSrc, 1, "Class")
+    If classCol = 0 Then Exit Function
+
+    nameCol = FindFirstHeaderColumn(wsSrc, 1, Array("Name", "Student Name", "Student"))
+    regCol = FindFirstHeaderColumn(wsSrc, 1, Array("RegNo", "Reg No", "Register No", "Index No", "Adm No"))
+
+    lastRow = wsSrc.Cells(wsSrc.Rows.count, classCol).End(xlUp).Row
+    firstClass = ""
+    For r = 2 To lastRow
+        firstClass = Trim$(CStr(wsSrc.Cells(r, classCol).value))
+        If firstClass <> "" Then Exit For
+    Next r
+    If firstClass = "" Then Exit Function
+
+    levelCode = InferLevelCodeFromClass(firstClass)
+    If levelCode = "" Then Exit Function
+
+    lastCol = wsSrc.Cells(1, wsSrc.Columns.count).End(xlToLeft).Column
+    subjCount = 0
+
+    For c = 1 To lastCol
+        If c <> classCol Then
+            header = Trim$(CStr(wsSrc.Cells(1, c).value))
+            If header <> "" And IsLikelySubjectGradeColumn(header) Then
+                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                If schemeKey <> "" Then
+                    subjCount = subjCount + 1
+                    ReDim Preserve subjectCols(1 To subjCount)
+                    ReDim Preserve subjectSchemeKeys(1 To subjCount)
+                    subjectCols(subjCount) = c
+                    subjectSchemeKeys(subjCount) = schemeKey
+                End If
+            End If
+        End If
+    Next c
+
+    If subjCount = 0 Then Exit Function
+
+    outRow = startOutRow
+    For r = 2 To lastRow
+        className = Trim$(CStr(wsSrc.Cells(r, classCol).value))
+        If className = "" Then GoTo NextStudent
+
+        If UCase$(Left$(className, 1)) = "Y" Then GoTo NextStudent
+
+        If nameCol > 0 Then
+            studentName = Trim$(CStr(wsSrc.Cells(r, nameCol).value))
+        Else
+            studentName = ""
+        End If
+
+        If regCol > 0 Then
+            regNo = Trim$(CStr(wsSrc.Cells(r, regCol).value))
+        Else
+            regNo = ""
+        End If
+
+        attemptedCount = 0
+        passCount = 0
+        failCount = 0
+
+        For i = 1 To subjCount
+            gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
+
+            If gradeStr <> "" Then
+                attemptedCount = attemptedCount + 1
+                If IsFailGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
+                    failCount = failCount + 1
+                Else
+                    passCount = passCount + 1
+                End If
+            End If
+        Next i
+
+        If attemptedCount > 0 Then
+            If failCount >= atRiskFailThreshold Then
+                riskBand = "AT RISK"
+            ElseIf failCount >= 1 Then
+                riskBand = "MONITOR"
+            Else
+                riskBand = "OK"
+            End If
+
+            wsOut.Cells(outRow, 1).value = levelCode
+            wsOut.Cells(outRow, 2).value = wsSrc.Name
+            wsOut.Cells(outRow, 3).value = className
+            wsOut.Cells(outRow, 4).value = regNo
+            wsOut.Cells(outRow, 5).value = studentName
+            wsOut.Cells(outRow, 6).value = attemptedCount
+            wsOut.Cells(outRow, 7).value = passCount
+            wsOut.Cells(outRow, 8).value = failCount
+            wsOut.Cells(outRow, 9).value = riskBand
+
+            If riskBand = "AT RISK" Then
+                wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
+                wsOut.Cells(outRow, 9).Font.Color = RGB(192, 0, 0)
+                wsOut.Cells(outRow, 9).Font.Bold = True
+            ElseIf riskBand = "MONITOR" Then
+                wsOut.Cells(outRow, 9).Font.Color = RGB(156, 101, 0)
+            Else
+                wsOut.Cells(outRow, 9).Font.Color = RGB(0, 97, 0)
+            End If
+
+            outRow = outRow + 1
+        End If
+
+NextStudent:
+    Next r
+
+    AppendSecAtRiskFromSourceSheet = outRow - startOutRow
+    Exit Function
+
+FailSafe:
+    AppendSecAtRiskFromSourceSheet = 0
+End Function
 
 '---------------------------------------------------------
 ' ENGINE - BUILD ONE SUBJECT TABLE + CHART
@@ -983,6 +1204,60 @@ End Function
 '---------------------------------------------------------
 ' GENERIC HELPERS
 '---------------------------------------------------------
+Private Function IsFailGradeByScheme(ByVal gradeStr As String, ByVal schemeKey As String) As Boolean
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            IsFailGradeByScheme = (g = "D7" Or g = "E8" Or g = "F9")
+        Case "G2"
+            IsFailGradeByScheme = (g = "6")
+        Case "G1"
+            IsFailGradeByScheme = (g = "E")
+        Case Else
+            IsFailGradeByScheme = False
+    End Select
+End Function
+
+Private Function GetAtRiskFailThreshold() As Long
+    Dim ws As Worksheet
+    Dim v As Variant
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        GetAtRiskFailThreshold = DEFAULT_AT_RISK_FAIL_THRESHOLD
+        Exit Function
+    End If
+
+    ' Optional override: Settings!L7
+    v = ws.Range("L7").value
+    If IsNumeric(v) Then
+        GetAtRiskFailThreshold = CLng(v)
+        If GetAtRiskFailThreshold < 1 Then GetAtRiskFailThreshold = DEFAULT_AT_RISK_FAIL_THRESHOLD
+    Else
+        GetAtRiskFailThreshold = DEFAULT_AT_RISK_FAIL_THRESHOLD
+    End If
+End Function
+
+Private Function FindFirstHeaderColumn(ByVal ws As Worksheet, _
+                                       ByVal headerRow As Long, _
+                                       ByVal headerCandidates As Variant) As Long
+    Dim i As Long
+    Dim col As Long
+
+    For i = LBound(headerCandidates) To UBound(headerCandidates)
+        col = FindHeaderColumn(ws, headerRow, CStr(headerCandidates(i)))
+        If col > 0 Then
+            FindFirstHeaderColumn = col
+            Exit Function
+        End If
+    Next i
+End Function
+
 Private Function FindHeaderColumn(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal headerName As String) As Long
     Dim lastCol As Long, c As Long
     Dim h As String
