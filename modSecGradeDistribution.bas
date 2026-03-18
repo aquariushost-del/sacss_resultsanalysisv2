@@ -7,8 +7,9 @@ Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
 Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
-Private Const TOP_NAV_START_CELL As String = "T3"
+Private Const TOP_NAV_START_CELL As String = "R3"
 Private Const TOP_NAV_BTN_PREFIX As String = "Nav_TopQual_"
+Private Const NAV_BTN_WIDTH_FACTOR As Double = 0.5
 Private Const LEVEL_MODE_AUTO_FSBB As String = "AUTO_FSBB"
 Private Const LEVEL_MODE_LEGACY_NO_DOWNWARD As String = "LEGACY_NO_DOWNWARD"
 
@@ -121,7 +122,7 @@ Public Sub BuildTopQualityNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 5)).Clear
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(TOP_NAV_BTN_PREFIX)) = TOP_NAV_BTN_PREFIX Then shp.Delete
@@ -160,7 +161,7 @@ Private Sub CreateTopQualityNavButton(ByVal wsNav As Worksheet, _
 
     leftPos = wsNav.Cells(rowNum, firstCol).Left
     topPos = wsNav.Cells(rowNum, firstCol).Top
-    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
+    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width * NAV_BTN_WIDTH_FACTOR
     btnHeight = wsNav.Rows(rowNum).Height * 1.3
 
     Set shp = wsNav.Shapes.AddShape( _
@@ -1208,7 +1209,7 @@ Public Sub BuildSec_AtRiskNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 5)).Clear
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(ATRISK_NAV_BTN_PREFIX)) = ATRISK_NAV_BTN_PREFIX Then
@@ -1302,7 +1303,7 @@ Private Sub CreateAtRiskNavButton(ByVal wsNav As Worksheet, _
 
     leftPos = wsNav.Cells(rowNum, firstCol).Left
     topPos = wsNav.Cells(rowNum, firstCol).Top
-    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
+    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width * NAV_BTN_WIDTH_FACTOR
     btnHeight = wsNav.Rows(rowNum).Height * 1.3
 
     Set shp = wsNav.Shapes.AddShape( _
