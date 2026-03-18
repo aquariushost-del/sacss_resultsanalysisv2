@@ -5,7 +5,7 @@ Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
 Private Const DEFAULT_AT_RISK_FAIL_THRESHOLD As Long = 3
 Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 Private Const ATRISK_NAV_SHEET_NAME As String = "Dashboard"
-Private Const ATRISK_NAV_START_CELL As String = "T3"
+Private Const ATRISK_NAV_START_CELL As String = "M3"
 Private Const ATRISK_NAV_BTN_PREFIX As String = "Nav_AtRisk_"
 
 '=========================================================
@@ -453,7 +453,7 @@ Private Sub AddAtRiskHomeButton(ByVal ws As Worksheet)
     Dim leftPos As Double, topPos As Double
     Dim btnWidth As Double, btnHeight As Double
 
-    Set tgtCell = ws.Range("P1")
+    Set tgtCell = ws.Range("E1")
     leftPos = tgtCell.Left
     topPos = tgtCell.Top
     btnWidth = tgtCell.Width * 1.2
