@@ -1221,6 +1221,12 @@ Private Function IsLikelySubjectGradeColumn(ByVal header As String) As Boolean
     Dim h As String
     h = UCase$(Trim$(header))
 
+    ' Never treat score columns as grade columns.
+    If InStr(1, h, "(SCORE)", vbTextCompare) > 0 Then
+        IsLikelySubjectGradeColumn = False
+        Exit Function
+    End If
+
     If Right$(h, 7) = "(GRADE)" Then
         IsLikelySubjectGradeColumn = True
         Exit Function
