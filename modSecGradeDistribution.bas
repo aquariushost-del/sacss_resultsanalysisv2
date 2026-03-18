@@ -677,7 +677,8 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                 "Downward conversion for mixed-level subjects: " & _
                 "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
                 "G2->G1: 1/2/3=>A, 4=>B. " & _
-                "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B."
+                "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
+                "Note: Do not use this data for Awards selection."
 
     With wsOut.Range("A2:I2")
         .Merge
