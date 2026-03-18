@@ -20,6 +20,7 @@ Private Type TopStudentRec
     TopPrimaryCount As Long
     TopSecondaryCount As Long
     DownwardRemarks As String
+    RawTopGrades As String
 End Type
 
 '=========================================================
@@ -399,6 +400,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long, groupTotalCount As Long
     Dim fsbbGroup As String
     Dim remarksText As String
+    Dim rawTopText As String
     Dim mappedLabel As String
     Dim usedDownward As Boolean
     Dim mappedBand As Long
@@ -509,6 +511,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 topPrimaryCount = 0
                 topSecondaryCount = 0
                 remarksText = ""
+                rawTopText = ""
                 For i = 1 To subjCount
                     rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
                     gradeStr = NormalizeGradeForScheme(CStr(wsSrc.Cells(r, subjectCols(i)).value), subjectSchemeKeys(i))
@@ -526,6 +529,11 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                             Case 2
                                 topSecondaryCount = topSecondaryCount + 1
                         End Select
+
+                        If mappedBand > 0 Then
+                            If rawTopText <> "" Then rawTopText = rawTopText & ", "
+                            rawTopText = rawTopText & subjectNames(i) & " (" & gradeStr & ")"
+                        End If
 
                         If usedDownward And mappedBand > 0 Then
                             If remarksText <> "" Then remarksText = remarksText & ", "
@@ -551,6 +559,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 recs(recCount).TopPrimaryCount = topPrimaryCount
                 recs(recCount).TopSecondaryCount = topSecondaryCount
                 recs(recCount).DownwardRemarks = remarksText
+                recs(recCount).RawTopGrades = rawTopText
             End If
         End If
 
@@ -628,7 +637,8 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     wsOut.Cells(startRow, 7).value = primaryLbl
     wsOut.Cells(startRow, 8).value = secondaryLbl
     wsOut.Cells(startRow, 9).value = "Remarks"
-    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 9)).Font.Bold = True
+    wsOut.Cells(startRow, 10).value = "Raw Top Grades"
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10)).Font.Bold = True
     startRow = startRow + 1
 
     If idxCount <= topN Then
@@ -657,6 +667,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
         wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
         wsOut.Cells(r, 9).value = recs(idx(i)).DownwardRemarks
+        wsOut.Cells(r, 10).value = recs(idx(i)).RawTopGrades
         r = r + 1
     Next i
 
@@ -680,7 +691,7 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                 "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
                 "Note: Do not use this data for Awards selection."
 
-    With wsOut.Range("A2:I2")
+    With wsOut.Range("A2:J2")
         .Merge
         .value = explainer
         .WrapText = True
@@ -693,7 +704,7 @@ End Sub
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
-    wsOut.Columns("A:I").AutoFit
+    wsOut.Columns("A:J").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 12
     wsOut.Columns("C").ColumnWidth = 5
@@ -702,13 +713,15 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
     wsOut.Columns("F").ColumnWidth = 10
     wsOut.Columns("G").ColumnWidth = 10
     wsOut.Columns("H").ColumnWidth = 10
-    wsOut.Columns("I").ColumnWidth = 45
+    wsOut.Columns("I").ColumnWidth = 32
     wsOut.Columns("C").HorizontalAlignment = xlCenter
     wsOut.Columns("E:H").HorizontalAlignment = xlCenter
     wsOut.Columns("I").WrapText = True
+    wsOut.Columns("J").ColumnWidth = 45
+    wsOut.Columns("J").WrapText = True
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:I" & lastRow)
+        Set rngTable = wsOut.Range("A4:J" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
