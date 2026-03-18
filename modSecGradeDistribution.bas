@@ -504,6 +504,17 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
 
     GetTopBandLabels groupCode, primaryLbl, secondaryLbl
 
+    wsOut.Cells(startRow, 1).value = "Level"
+    wsOut.Cells(startRow, 2).value = "Class"
+    wsOut.Cells(startRow, 3).value = "RegNo"
+    wsOut.Cells(startRow, 4).value = "Name"
+    wsOut.Cells(startRow, 5).value = "Group"
+    wsOut.Cells(startRow, 6).value = primaryLbl & "/" & secondaryLbl
+    wsOut.Cells(startRow, 7).value = primaryLbl
+    wsOut.Cells(startRow, 8).value = secondaryLbl
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 8)).Font.Bold = True
+    startRow = startRow + 1
+
     If idxCount <= topN Then
         cutoffTop = recs(idx(idxCount)).TopCount
         cutoffPrimary = recs(idx(idxCount)).TopPrimaryCount
@@ -529,7 +540,6 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
         wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
         wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
-        wsOut.Cells(r, 9).value = primaryLbl & "=" & recs(idx(i)).TopPrimaryCount & ", " & secondaryLbl & "=" & recs(idx(i)).TopSecondaryCount
         r = r + 1
     Next i
 
@@ -552,7 +562,7 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                 "G2->G1: 1/2/3=>A, 4=>B. " & _
                 "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B."
 
-    With wsOut.Range("A2:I2")
+    With wsOut.Range("A2:H2")
         .Merge
         .value = explainer
         .WrapText = True
@@ -560,23 +570,12 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
         .VerticalAlignment = xlTop
     End With
     wsOut.Rows(2).RowHeight = 60
-
-    wsOut.Cells(4, 1).value = "Level"
-    wsOut.Cells(4, 2).value = "Class"
-    wsOut.Cells(4, 3).value = "RegNo"
-    wsOut.Cells(4, 4).value = "Name"
-    wsOut.Cells(4, 5).value = "Group"
-    wsOut.Cells(4, 6).value = "Top Grades"
-    wsOut.Cells(4, 7).value = "Top Band 1"
-    wsOut.Cells(4, 8).value = "Top Band 2"
-    wsOut.Cells(4, 9).value = "Breakdown"
-    wsOut.Rows(4).Font.Bold = True
 End Sub
 
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
-    wsOut.Columns("A:I").AutoFit
+    wsOut.Columns("A:H").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 12
     wsOut.Columns("C").ColumnWidth = 5
@@ -585,13 +584,11 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
     wsOut.Columns("F").ColumnWidth = 10
     wsOut.Columns("G").ColumnWidth = 10
     wsOut.Columns("H").ColumnWidth = 10
-    wsOut.Columns("I").ColumnWidth = 20
     wsOut.Columns("C").HorizontalAlignment = xlCenter
     wsOut.Columns("E:H").HorizontalAlignment = xlCenter
-    wsOut.Columns("I").WrapText = True
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:I" & lastRow)
+        Set rngTable = wsOut.Range("A4:H" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
