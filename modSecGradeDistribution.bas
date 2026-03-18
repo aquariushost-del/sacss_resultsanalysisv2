@@ -394,15 +394,15 @@ NextSubject:
             wsOut.Cells(outRow, 2).value = className
             wsOut.Cells(outRow, 3).value = regNo
             wsOut.Cells(outRow, 4).value = studentName
+            fsbbGroup = ResolveFsbbGroup(g1Taken, g2Taken, g3Taken, attemptedCount, groupThresholdPct)
             wsOut.Cells(outRow, 5).value = attemptedCount
             wsOut.Cells(outRow, 6).value = passCount
             wsOut.Cells(outRow, 7).value = failCount
             wsOut.Cells(outRow, 8).value = failedSubjects
             wsOut.Cells(outRow, 9).value = riskBand
             wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
-            wsOut.Cells(outRow, 11).value = attemptedSubjects
-            wsOut.Cells(outRow, 12).value = vrSubjects
-            fsbbGroup = ResolveFsbbGroup(g1Taken, g2Taken, g3Taken, attemptedCount, groupThresholdPct)
+            wsOut.Cells(outRow, 12).value = attemptedSubjects
+            wsOut.Cells(outRow, 13).value = vrSubjects
             wsOut.Cells(outRow, 14).value = fsbbGroup
 
             If riskBand = "AT RISK" Then
@@ -619,8 +619,8 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 8).value = "Failed Subjects"
     wsOut.Cells(4, 9).value = "Risk Band"
     wsOut.Cells(4, 10).value = "SortKey"
-    wsOut.Cells(4, 11).value = "Attempted Subjects"
-    wsOut.Cells(4, 12).value = "VR Subjects"
+    wsOut.Cells(4, 12).value = "Attempted Subjects"
+    wsOut.Cells(4, 13).value = "VR Subjects"
     wsOut.Cells(4, 14).value = "Group"
     wsOut.Rows(4).Font.Bold = True
 End Sub
@@ -648,10 +648,11 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("E:G").HorizontalAlignment = xlCenter
     wsOut.Columns("H").ColumnWidth = 40
     wsOut.Columns("H").WrapText = True
-    wsOut.Columns("K").ColumnWidth = 40
-    wsOut.Columns("K").WrapText = True
+    wsOut.Columns("K").ColumnWidth = 10
     wsOut.Columns("L").ColumnWidth = 40
     wsOut.Columns("L").WrapText = True
+    wsOut.Columns("M").ColumnWidth = 15
+    wsOut.Columns("M").WrapText = True
     wsOut.Columns("N").ColumnWidth = 10
     wsOut.Columns("N").HorizontalAlignment = xlCenter
     wsOut.Columns("J").EntireColumn.Hidden = True
