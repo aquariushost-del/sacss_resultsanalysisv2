@@ -301,6 +301,8 @@ Private Sub PrepareProgressHeader(ByVal ws As Worksheet, ByVal classCode As Stri
 
     ws.Range("A2").Value = "Year: " & yearVal & " | AB treated as fail (0 marks), excluded from Subjects Attempted."
     ws.Range("A2").Font.Italic = True
+    ws.Range("A3").Value = "Note: Avg Pt is an internal tracking metric used to monitor progress trends across assessments; it is not a parent-facing grade."
+    ws.Range("A3").Font.Italic = True
 
     ws.Cells(4, 1).Value = "RegNo"
     ws.Cells(4, 2).Value = "Name"
@@ -308,13 +310,13 @@ Private Sub PrepareProgressHeader(ByVal ws As Worksheet, ByVal classCode As Stri
     ws.Cells(4, 4).Value = "Subjects Attempted (To)"
     ws.Cells(4, 5).Value = "Avg Pt " & fromAssessment
     ws.Cells(4, 6).Value = "Avg Pt " & toAssessment
-    ws.Cells(4, 7).Value = "Delta"
+    ws.Cells(4, 7).Value = "Overall Change"
     ws.Cells(4, 8).Value = "Improved #"
     ws.Cells(4, 9).Value = "Declined #"
     ws.Cells(4, 10).Value = "Unchanged #"
     ws.Cells(4, 11).Value = "Fail # " & fromAssessment
     ws.Cells(4, 12).Value = "Fail # " & toAssessment
-    ws.Cells(4, 13).Value = "Fail Delta"
+    ws.Cells(4, 13).Value = "Fail Change"
     ws.Cells(4, 14).Value = "AB Subjects"
     ws.Cells(4, 15).Value = "VR Subjects"
     ws.Cells(4, 16).Value = "Failed Subjects (To)"
@@ -794,14 +796,36 @@ Private Function BuildAiCoachPrompt(ByVal regNo As String, ByVal studentName As 
                                     ByVal topImproved As String, ByVal topDeclined As String, _
                                     ByVal failedSubjectsTo As String, ByVal abSubjects As String, ByVal vrSubjects As String) As String
     Dim s As String
+    Dim trendText As String
+    Dim severityText As String
+
+    If avgDelta < 0 Then
+        trendText = "overall improved"
+    ElseIf avgDelta > 0 Then
+        trendText = "overall slipped"
+    Else
+        trendText = "overall remained steady"
+    End If
+
+    If Abs(avgDelta) >= 1 Then
+        severityText = "large"
+    ElseIf Abs(avgDelta) >= 0.5 Then
+        severityText = "moderate"
+    ElseIf Abs(avgDelta) > 0 Then
+        severityText = "small"
+    Else
+        severityText = "minimal"
+    End If
+
     s = "You are an academic coach. Analyse this student's results and produce: " & _
         "(1) concise status, (2) 3 actionable insights, (3) targeted advice for student, " & _
         "(4) targeted advice for parents, (5) 2-week action plan with measurable checkpoints." & _
         " Keep tone practical and supportive." & vbLf
     s = s & "Student: " & studentName & " | RegNo: " & regNo & " | Class: " & className & vbLf
     s = s & "Assessment comparison: " & fromAssessment & " -> " & toAssessment & vbLf
-    s = s & "Rate band: " & rateBand & " | AvgPt: " & Format$(avgFrom, "0.00") & " -> " & Format$(avgTo, "0.00") & _
-            " (Delta " & Format$(avgDelta, "0.00") & ")" & vbLf
+    s = s & "Current status band: " & rateBand & vbLf
+    s = s & "Overall trend summary: Student " & trendText & " from " & fromAssessment & " to " & toAssessment & _
+            " (" & severityText & " change)." & vbLf
     s = s & "Subject movement: improved " & improved & ", declined " & declined & ", unchanged " & unchanged & vbLf
     s = s & "Fail count: " & failFrom & " -> " & failTo & vbLf
     If topImproved <> "" Then s = s & "Strength subjects: " & topImproved & vbLf
