@@ -151,13 +151,17 @@ End Sub
 
 Private Sub ParseCockpit_ToStagingCore(ByVal useFilePicker As Boolean)
     Dim cfg As tSettings
+    Dim replaceAffectedSheets As Boolean
+    Dim clearedTargetSheets As Collection
     If Not ReadSettings(cfg) Then
         MsgBox "Settings are incomplete." & vbCrLf & GetSettingsErrorText(), vbExclamation
         Exit Sub
     End If
 
-    ' Always start from clean staging sheets (no append from previous runs)
-    ClearStaging False
+    ' Default behavior: replace only sheets affected by imported files.
+    ' Example: importing S1_WA1 files refreshes S1_WA1_* sheets and leaves WA2 untouched.
+    replaceAffectedSheets = True
+    Set clearedTargetSheets = New Collection
 
     ' Speed up
     Application.ScreenUpdating = False
@@ -186,7 +190,7 @@ Private Sub ParseCockpit_ToStagingCore(ByVal useFilePicker As Boolean)
             filePath = CStr(v)
             If Len(filePath) > 0 Then
                 On Error GoTo HandleOneFail
-                ProcessOneWorkbook filePath, cfg
+                ProcessOneWorkbook filePath, cfg, replaceAffectedSheets, clearedTargetSheets
                 processed = processed + 1
             End If
 NextPickedFile:
@@ -207,7 +211,7 @@ NextPickedFile:
             filePath = folderPath & f
             If Left$(f, 2) <> "~$" Then
                 On Error GoTo HandleOneFail
-                ProcessOneWorkbook filePath, cfg
+                ProcessOneWorkbook filePath, cfg, replaceAffectedSheets, clearedTargetSheets
                 processed = processed + 1
             End If
 NextFolderFile:
@@ -493,7 +497,10 @@ End Sub
 '========================
 ' CORE PROCESSOR (WIDE OUTPUT, SCORE + optional GRADE, PER LEVEL+ASSESSMENT+YEAR)
 '========================
-Private Sub ProcessOneWorkbook(ByVal fullPath As String, ByRef cfg As tSettings)
+Private Sub ProcessOneWorkbook(ByVal fullPath As String, _
+                               ByRef cfg As tSettings, _
+                               Optional ByVal replaceAffectedSheets As Boolean = False, _
+                               Optional ByRef clearedTargetSheets As Collection = Nothing)
     Dim wb As Workbook, sh As Worksheet
     Set wb = Application.Workbooks.Open(FileName:=fullPath, ReadOnly:=True)
     
@@ -637,6 +644,17 @@ Private Sub ProcessOneWorkbook(ByVal fullPath As String, ByRef cfg As tSettings)
         outSheetName = baseName & "_" & levelKey & "_" & assessKey & "_" & yearKey
     Else
         outSheetName = levelKey & "_" & assessKey & "_" & yearKey
+    End If
+
+    ' In replace-affected mode, clear each target sheet once per run before writing.
+    If replaceAffectedSheets Then
+        If clearedTargetSheets Is Nothing Then Set clearedTargetSheets = New Collection
+        If Not MapExists(clearedTargetSheets, outSheetName) Then
+            Dim wsReplace As Worksheet
+            Set wsReplace = GetOrCreateSheet(outSheetName)
+            wsReplace.Cells.Clear
+            MapSet clearedTargetSheets, outSheetName, 1
+        End If
     End If
     
     ' Prepare output sheet (wide, score + optional grade)
