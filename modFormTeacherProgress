@@ -1,0 +1,740 @@
+Attribute VB_Name = "modFormTeacherProgress"
+Option Explicit
+
+'=========================================================
+' Module: modFormTeacherProgress
+'
+' PURPOSE
+'   Build form-teacher progress reports comparing two assessments
+'   (default WA1 -> WA2) from normalized staging sheets.
+'
+' OUTPUT
+'   1) FT_Progress_<Class>_<From>_<To>
+'      One row per student with summary metrics + auto remarks.
+'   2) FT_SubjectDelta_<Class>_<From>_<To>
+'      One row per Student x Subject delta details.
+'
+' ASSUMPTIONS
+'   - Source sheets have at least:
+'       RegNo | Name | Class | Assessment | Year | ...subject columns...
+'   - Subject columns may be either:
+'       a) score only, OR
+'       b) score + immediate grade column named "<Subject> (Grade)"
+'   - Grade values may be G3/G2/G1 style and will be normalized into
+'     comparable points via GradeToComparablePoint().
+'
+'=========================================================
+
+Public Sub BuildFormTeacherProgress_WA1_WA2()
+    BuildFormTeacherProgress "WA1", "WA2"
+End Sub
+
+Public Sub BuildFormTeacherProgress_Prompt()
+    Dim fromAssess As String, toAssess As String
+    fromAssess = Trim$(InputBox("From assessment (e.g. WA1):", "Form Teacher Progress", "WA1"))
+    If fromAssess = "" Then Exit Sub
+
+    toAssess = Trim$(InputBox("To assessment (e.g. WA2):", "Form Teacher Progress", "WA2"))
+    If toAssess = "" Then Exit Sub
+
+    BuildFormTeacherProgress fromAssess, toAssess
+End Sub
+
+Public Sub BuildFormTeacherProgressAllClasses_Prompt()
+    Dim fromAssess As String, toAssess As String
+    fromAssess = Trim$(InputBox("From assessment (e.g. WA1):", "Form Teacher Progress - All Classes", "WA1"))
+    If fromAssess = "" Then Exit Sub
+
+    toAssess = Trim$(InputBox("To assessment (e.g. WA2):", "Form Teacher Progress - All Classes", "WA2"))
+    If toAssess = "" Then Exit Sub
+
+    BuildFormTeacherProgressAllClasses fromAssess, toAssess
+End Sub
+
+Public Sub BuildFormTeacherProgress(ByVal fromAssessment As String, ByVal toAssessment As String)
+    Dim classCode As String
+    classCode = Trim$(InputBox("Class code (e.g. S3A):", "Form Teacher Progress"))
+    If classCode = "" Then Exit Sub
+
+    BuildFormTeacherProgressForClass classCode, fromAssessment, toAssessment
+End Sub
+
+Public Sub BuildFormTeacherProgressAllClasses(ByVal fromAssessment As String, ByVal toAssessment As String)
+    Dim classes As Object
+    Dim classCode As Variant
+    Dim builtCount As Long
+
+    Set classes = CollectClassesForAssessment(toAssessment)
+    If classes.Count = 0 Then
+        MsgBox "No classes found for assessment " & toAssessment & ".", vbExclamation
+        Exit Sub
+    End If
+
+    builtCount = 0
+    For Each classCode In classes.Keys
+        BuildFormTeacherProgressForClass CStr(classCode), fromAssessment, toAssessment, False
+        builtCount = builtCount + 1
+    Next classCode
+
+    MsgBox "Form teacher progress generated for " & builtCount & " class(es): " & fromAssessment & " -> " & toAssessment, vbInformation
+End Sub
+
+Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
+                                            ByVal fromAssessment As String, _
+                                            ByVal toAssessment As String, _
+                                            Optional ByVal showDoneMessage As Boolean = True)
+    Dim wsFrom As Worksheet, wsTo As Worksheet
+    Dim idxFrom As Object, idxTo As Object
+    Dim subjectMap As Object
+    Dim wsOut As Worksheet, wsDelta As Worksheet
+    Dim outRow As Long, deltaRow As Long
+    Dim studentKey As Variant
+    Dim studentRec As Variant
+    Dim regNo As String, studentName As String, cls As String
+    Dim fromRow As Long, toRow As Long
+    Dim yearVal As String
+
+    Set wsFrom = FindAssessmentSheetForClass(classCode, fromAssessment)
+    Set wsTo = FindAssessmentSheetForClass(classCode, toAssessment)
+
+    If wsFrom Is Nothing Then
+        MsgBox "Could not find source sheet for " & classCode & " / " & fromAssessment, vbExclamation
+        Exit Sub
+    End If
+    If wsTo Is Nothing Then
+        MsgBox "Could not find source sheet for " & classCode & " / " & toAssessment, vbExclamation
+        Exit Sub
+    End If
+
+    Set idxFrom = BuildStudentIndex(wsFrom, classCode)
+    Set idxTo = BuildStudentIndex(wsTo, classCode)
+    Set subjectMap = BuildSubjectMap(wsFrom, wsTo)
+
+    yearVal = ExtractYearFromSheetName(wsTo.Name)
+
+    Set wsOut = GetOrCreateSheet("FT_Progress_" & classCode & "_" & fromAssessment & "_" & toAssessment)
+    Set wsDelta = GetOrCreateSheet("FT_SubjectDelta_" & classCode & "_" & fromAssessment & "_" & toAssessment)
+
+    PrepareProgressHeader wsOut, classCode, fromAssessment, toAssessment, yearVal
+    PrepareSubjectDeltaHeader wsDelta, classCode, fromAssessment, toAssessment, yearVal
+
+    outRow = 5
+    deltaRow = 5
+
+    For Each studentKey In idxTo.Keys
+        studentRec = idxTo(studentKey) ' Array(regNo, name, class, row)
+        regNo = CStr(studentRec(0))
+        studentName = CStr(studentRec(1))
+        cls = CStr(studentRec(2))
+        toRow = CLng(studentRec(3))
+
+        fromRow = 0
+        If idxFrom.Exists(studentKey) Then
+            fromRow = CLng(idxFrom(studentKey)(3))
+        End If
+
+        WriteOneStudentProgress wsFrom, wsTo, subjectMap, fromRow, toRow, _
+                                regNo, studentName, cls, _
+                                fromAssessment, toAssessment, _
+                                wsOut, outRow, wsDelta, deltaRow
+        outRow = outRow + 1
+    Next studentKey
+
+    FinalizeProgressSheet wsOut, outRow - 1
+    FinalizeSubjectDeltaSheet wsDelta, deltaRow - 1
+
+    If showDoneMessage Then
+        MsgBox "Form teacher progress generated for " & classCode & ": " & fromAssessment & " -> " & toAssessment, vbInformation
+    End If
+End Sub
+
+Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Worksheet, ByVal subjectMap As Object, _
+                                    ByVal fromRow As Long, ByVal toRow As Long, _
+                                    ByVal regNo As String, ByVal studentName As String, ByVal cls As String, _
+                                    ByVal fromAssessment As String, ByVal toAssessment As String, _
+                                    ByVal wsOut As Worksheet, ByVal outRow As Long, _
+                                    ByVal wsDelta As Worksheet, ByRef deltaRow As Long)
+
+    Dim subj As Variant
+    Dim rec As Variant
+    Dim fromGrade As String, toGrade As String, fromRaw As String, toRaw As String
+    Dim fromPt As Variant, toPt As Variant
+    Dim attemptedTo As Long
+    Dim improved As Long, declined As Long, unchanged As Long
+    Dim sigImp As Long, sigDec As Long
+    Dim failFrom As Long, failTo As Long
+    Dim abList As String, vrList As String, failListTo As String
+    Dim topImproved As String, topDeclined As String
+    Dim delta As Double
+    Dim sumFrom As Double, sumTo As Double, nFrom As Long, nTo As Long
+    Dim avgFrom As Double, avgTo As Double
+    Dim rateBand As String, remark As String, talkingPoints As String
+    Dim ptDelta As Double
+
+    attemptedTo = 0
+
+    For Each subj In subjectMap.Keys
+        rec = subjectMap(subj) ' Array(fromGradeCol, toGradeCol)
+
+        fromGrade = ""
+        fromRaw = ""
+        toGrade = ""
+        toRaw = ""
+
+        If fromRow > 0 And CLng(rec(0)) > 0 Then
+            fromRaw = UCase$(Trim$(CStr(wsFrom.Cells(fromRow, CLng(rec(0))).Value)))
+            fromGrade = NormalizeGenericGrade(fromRaw)
+        End If
+
+        If toRow > 0 And CLng(rec(1)) > 0 Then
+            toRaw = UCase$(Trim$(CStr(wsTo.Cells(toRow, CLng(rec(1))).Value)))
+            toGrade = NormalizeGenericGrade(toRaw)
+        End If
+
+        ' Track AB / VR explicitly from TO assessment
+        If toRaw = "AB" Then
+            AppendToken abList, CStr(subj)
+            AppendToken failListTo, CStr(subj) & " (AB)"
+            failTo = failTo + 1
+        ElseIf toRaw = "VR" Then
+            AppendToken vrList, CStr(subj)
+        End If
+
+        ' Attempted in TO means has valid non-empty normalized grade
+        If toGrade <> "" Then attemptedTo = attemptedTo + 1
+
+        fromPt = GradeToComparablePoint(fromGrade)
+        toPt = GradeToComparablePoint(toGrade)
+
+        If IsNumeric(fromPt) Then
+            sumFrom = sumFrom + CDbl(fromPt)
+            nFrom = nFrom + 1
+            If IsFailByComparablePoint(CDbl(fromPt)) Then failFrom = failFrom + 1
+        End If
+
+        If IsNumeric(toPt) Then
+            sumTo = sumTo + CDbl(toPt)
+            nTo = nTo + 1
+            If IsFailByComparablePoint(CDbl(toPt)) Then
+                failTo = failTo + 1
+                AppendToken failListTo, CStr(subj)
+            End If
+        End If
+
+        If IsNumeric(fromPt) And IsNumeric(toPt) Then
+            ptDelta = CDbl(toPt) - CDbl(fromPt) ' lower is better
+
+            If ptDelta < 0 Then
+                improved = improved + 1
+                If Abs(ptDelta) >= 2# Then sigImp = sigImp + 1
+            ElseIf ptDelta > 0 Then
+                declined = declined + 1
+                If Abs(ptDelta) >= 2# Then sigDec = sigDec + 1
+            Else
+                unchanged = unchanged + 1
+            End If
+
+            UpdateTopMoves CStr(subj), ptDelta, topImproved, topDeclined
+            WriteSubjectDeltaRow wsDelta, deltaRow, regNo, studentName, cls, CStr(subj), _
+                                fromGrade, toGrade, ptDelta, TrendLabelFromDelta(ptDelta)
+            deltaRow = deltaRow + 1
+        End If
+    Next subj
+
+    avgFrom = IIf(nFrom > 0, Round(sumFrom / nFrom, 2), 0#)
+    avgTo = IIf(nTo > 0, Round(sumTo / nTo, 2), 0#)
+    delta = Round(avgTo - avgFrom, 2)
+
+    rateBand = RateBandFromMetrics(delta, improved, declined, failFrom, failTo)
+    remark = BuildAutoRemark(rateBand, failFrom, failTo, sigImp, sigDec)
+    talkingPoints = BuildTalkingPoints(topImproved, topDeclined, abList, rateBand)
+
+    wsOut.Cells(outRow, 1).Value = regNo
+    wsOut.Cells(outRow, 2).Value = studentName
+    wsOut.Cells(outRow, 3).Value = cls
+    wsOut.Cells(outRow, 4).Value = attemptedTo
+    wsOut.Cells(outRow, 5).Value = avgFrom
+    wsOut.Cells(outRow, 6).Value = avgTo
+    wsOut.Cells(outRow, 7).Value = delta
+    wsOut.Cells(outRow, 8).Value = improved
+    wsOut.Cells(outRow, 9).Value = declined
+    wsOut.Cells(outRow, 10).Value = unchanged
+    wsOut.Cells(outRow, 11).Value = failFrom
+    wsOut.Cells(outRow, 12).Value = failTo
+    wsOut.Cells(outRow, 13).Value = failTo - failFrom
+    wsOut.Cells(outRow, 14).Value = abList
+    wsOut.Cells(outRow, 15).Value = vrList
+    wsOut.Cells(outRow, 16).Value = failListTo
+    wsOut.Cells(outRow, 17).Value = rateBand
+    wsOut.Cells(outRow, 18).Value = remark
+    wsOut.Cells(outRow, 19).Value = talkingPoints
+End Sub
+
+Private Sub PrepareProgressHeader(ByVal ws As Worksheet, ByVal classCode As String, _
+                                  ByVal fromAssessment As String, ByVal toAssessment As String, _
+                                  ByVal yearVal As String)
+    ws.Cells.Clear
+    ws.Range("A1").Value = "Form Teacher Progress - " & classCode & " (" & fromAssessment & " -> " & toAssessment & ")"
+    ws.Range("A1").Font.Bold = True
+    ws.Range("A1").Font.Size = 14
+
+    ws.Range("A2").Value = "Year: " & yearVal & " | AB treated as fail (0 marks), excluded from Subjects Attempted."
+    ws.Range("A2").Font.Italic = True
+
+    ws.Cells(4, 1).Value = "RegNo"
+    ws.Cells(4, 2).Value = "Name"
+    ws.Cells(4, 3).Value = "Class"
+    ws.Cells(4, 4).Value = "Subjects Attempted (To)"
+    ws.Cells(4, 5).Value = "Avg Pt " & fromAssessment
+    ws.Cells(4, 6).Value = "Avg Pt " & toAssessment
+    ws.Cells(4, 7).Value = "Delta"
+    ws.Cells(4, 8).Value = "Improved #"
+    ws.Cells(4, 9).Value = "Declined #"
+    ws.Cells(4, 10).Value = "Unchanged #"
+    ws.Cells(4, 11).Value = "Fail # " & fromAssessment
+    ws.Cells(4, 12).Value = "Fail # " & toAssessment
+    ws.Cells(4, 13).Value = "Fail Delta"
+    ws.Cells(4, 14).Value = "AB Subjects"
+    ws.Cells(4, 15).Value = "VR Subjects"
+    ws.Cells(4, 16).Value = "Failed Subjects (To)"
+    ws.Cells(4, 17).Value = "Rate of Improvement"
+    ws.Cells(4, 18).Value = "Auto Remarks"
+    ws.Cells(4, 19).Value = "Parent Talking Points"
+
+    ws.Rows(4).Font.Bold = True
+End Sub
+
+Private Sub PrepareSubjectDeltaHeader(ByVal ws As Worksheet, ByVal classCode As String, _
+                                      ByVal fromAssessment As String, ByVal toAssessment As String, _
+                                      ByVal yearVal As String)
+    ws.Cells.Clear
+    ws.Range("A1").Value = "Subject Delta Evidence - " & classCode & " (" & fromAssessment & " -> " & toAssessment & ")"
+    ws.Range("A1").Font.Bold = True
+    ws.Range("A1").Font.Size = 14
+
+    ws.Range("A2").Value = "Year: " & yearVal
+    ws.Range("A2").Font.Italic = True
+
+    ws.Cells(4, 1).Value = "RegNo"
+    ws.Cells(4, 2).Value = "Name"
+    ws.Cells(4, 3).Value = "Class"
+    ws.Cells(4, 4).Value = "Subject"
+    ws.Cells(4, 5).Value = fromAssessment & " Grade"
+    ws.Cells(4, 6).Value = toAssessment & " Grade"
+    ws.Cells(4, 7).Value = "Pt Delta"
+    ws.Cells(4, 8).Value = "Trend"
+    ws.Rows(4).Font.Bold = True
+End Sub
+
+Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
+    Dim rng As Range
+    If lastRow >= 4 Then
+        Set rng = ws.Range("A4:S" & lastRow)
+        With rng.Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(210, 210, 210)
+            .Weight = xlThin
+        End With
+    End If
+
+    ws.Columns("A:S").AutoFit
+    ws.Columns("B").ColumnWidth = 22
+    ws.Columns("N:P").ColumnWidth = 28
+    ws.Columns("Q").ColumnWidth = 18
+    ws.Columns("R:S").ColumnWidth = 55
+    ws.Columns("R:S").WrapText = True
+    ws.Columns("E:M").HorizontalAlignment = xlCenter
+End Sub
+
+Private Sub FinalizeSubjectDeltaSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
+    Dim rng As Range
+    If lastRow >= 4 Then
+        Set rng = ws.Range("A4:H" & lastRow)
+        With rng.Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(210, 210, 210)
+            .Weight = xlThin
+        End With
+    End If
+
+    ws.Columns("A:H").AutoFit
+    ws.Columns("B").ColumnWidth = 22
+    ws.Columns("D").ColumnWidth = 22
+    ws.Columns("E:F").HorizontalAlignment = xlCenter
+    ws.Columns("G").HorizontalAlignment = xlCenter
+End Sub
+
+Private Sub WriteSubjectDeltaRow(ByVal ws As Worksheet, ByVal rowNum As Long, _
+                                 ByVal regNo As String, ByVal studentName As String, ByVal cls As String, _
+                                 ByVal subjectName As String, ByVal fromGrade As String, ByVal toGrade As String, _
+                                 ByVal ptDelta As Double, ByVal trend As String)
+    ws.Cells(rowNum, 1).Value = regNo
+    ws.Cells(rowNum, 2).Value = studentName
+    ws.Cells(rowNum, 3).Value = cls
+    ws.Cells(rowNum, 4).Value = subjectName
+    ws.Cells(rowNum, 5).Value = fromGrade
+    ws.Cells(rowNum, 6).Value = toGrade
+    ws.Cells(rowNum, 7).Value = ptDelta
+    ws.Cells(rowNum, 8).Value = trend
+End Sub
+
+Private Function FindAssessmentSheetForClass(ByVal classCode As String, ByVal assessment As String) As Worksheet
+    Dim ws As Worksheet
+    Dim lvl As String
+    lvl = UCase$(Left$(Trim$(classCode), 2))
+
+    For Each ws In ThisWorkbook.Worksheets
+        If UCase$(ws.Name) Like lvl & "_*" Then
+            If InStr(1, UCase$(ws.Name), "_" & UCase$(assessment) & "_", vbTextCompare) > 0 Then
+                If HasHeader(ws, "Class") And HasHeader(ws, "RegNo") Then
+                    Set FindAssessmentSheetForClass = ws
+                    Exit Function
+                End If
+            End If
+        End If
+    Next ws
+End Function
+
+Private Function BuildStudentIndex(ByVal ws As Worksheet, ByVal classCode As String) As Object
+    Dim idx As Object
+    Dim classCol As Long, regCol As Long, nameCol As Long
+    Dim lastRow As Long, r As Long
+    Dim cls As String, regNo As String, nm As String, key As String
+
+    Set idx = CreateObject("Scripting.Dictionary")
+
+    classCol = FindHeaderColumn(ws, "Class")
+    regCol = FindHeaderColumn(ws, "RegNo")
+    nameCol = FindHeaderColumn(ws, "Name")
+
+    If classCol = 0 Or regCol = 0 Then
+        Set BuildStudentIndex = idx
+        Exit Function
+    End If
+
+    lastRow = ws.Cells(ws.Rows.Count, classCol).End(xlUp).Row
+    For r = 2 To lastRow
+        cls = Trim$(CStr(ws.Cells(r, classCol).Value))
+        If UCase$(cls) = UCase$(classCode) Then
+            regNo = Trim$(CStr(ws.Cells(r, regCol).Value))
+            If nameCol > 0 Then nm = Trim$(CStr(ws.Cells(r, nameCol).Value)) Else nm = ""
+            key = BuildStudentKey(regNo, nm, cls)
+            If key <> "" Then idx(key) = Array(regNo, nm, cls, r)
+        End If
+    Next r
+
+    Set BuildStudentIndex = idx
+End Function
+
+Private Function BuildSubjectMap(ByVal wsFrom As Worksheet, ByVal wsTo As Worksheet) As Object
+    Dim m As Object
+    Dim mapFrom As Object, mapTo As Object
+    Dim subj As Variant
+    Dim arr(0 To 1) As Long
+
+    Set m = CreateObject("Scripting.Dictionary")
+    Set mapFrom = GetGradeColumnsBySubject(wsFrom)
+    Set mapTo = GetGradeColumnsBySubject(wsTo)
+
+    For Each subj In mapTo.Keys
+        If Not m.Exists(CStr(subj)) Then
+            arr(0) = 0
+            arr(1) = CLng(mapTo(subj))
+            If mapFrom.Exists(CStr(subj)) Then arr(0) = CLng(mapFrom(subj))
+            m.Add CStr(subj), arr
+        End If
+    Next subj
+
+    For Each subj In mapFrom.Keys
+        If Not m.Exists(CStr(subj)) Then
+            arr(0) = CLng(mapFrom(subj))
+            arr(1) = 0
+            m.Add CStr(subj), arr
+        End If
+    Next subj
+
+    Set BuildSubjectMap = m
+End Function
+
+Private Function GetGradeColumnsBySubject(ByVal ws As Worksheet) As Object
+    Dim m As Object
+    Dim lastCol As Long, c As Long
+    Dim h As String, subj As String
+
+    Set m = CreateObject("Scripting.Dictionary")
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+
+    For c = 1 To lastCol
+        h = Trim$(CStr(ws.Cells(1, c).Value))
+        If IsGradeHeader(h) Then
+            subj = NormalizeSubjectNameFromGradeHeader(h)
+            If subj <> "" Then
+                If Not m.Exists(subj) Then m.Add subj, c
+            End If
+        End If
+    Next c
+
+    Set GetGradeColumnsBySubject = m
+End Function
+
+Private Function IsGradeHeader(ByVal headerText As String) As Boolean
+    Dim h As String
+    h = UCase$(Trim$(headerText))
+    If h = "" Then Exit Function
+    If Right$(h, 8) = " (GRADE)" Then
+        IsGradeHeader = True
+    Else
+        IsGradeHeader = False
+    End If
+End Function
+
+Private Function NormalizeSubjectNameFromGradeHeader(ByVal headerText As String) As String
+    Dim h As String
+    h = Trim$(headerText)
+    If UCase$(Right$(h, 8)) = " (GRADE)" Then
+        NormalizeSubjectNameFromGradeHeader = Trim$(Left$(h, Len(h) - 8))
+    Else
+        NormalizeSubjectNameFromGradeHeader = ""
+    End If
+End Function
+
+Private Function NormalizeGenericGrade(ByVal gradeRaw As String) As String
+    Dim g As String
+    g = UCase$(Trim$(gradeRaw))
+
+    If g = "" Or g = "-" Or g = "AB" Or g = "VR" Or g = "MC" Then
+        NormalizeGenericGrade = ""
+        Exit Function
+    End If
+
+    If g = "9" Then g = "F9"
+
+    NormalizeGenericGrade = g
+End Function
+
+Private Function GradeToComparablePoint(ByVal gradeStr As String) As Variant
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+    If g = "" Then
+        GradeToComparablePoint = Empty
+        Exit Function
+    End If
+
+    Select Case g
+        ' G3
+        Case "A1": GradeToComparablePoint = 1
+        Case "A2": GradeToComparablePoint = 2
+        Case "B3": GradeToComparablePoint = 3
+        Case "B4": GradeToComparablePoint = 4
+        Case "C5": GradeToComparablePoint = 5
+        Case "C6": GradeToComparablePoint = 6
+        Case "D7": GradeToComparablePoint = 7
+        Case "E8": GradeToComparablePoint = 8
+        Case "F9": GradeToComparablePoint = 9
+
+        ' G2 (1 best -> 6 worst)
+        Case "1": GradeToComparablePoint = 1
+        Case "2": GradeToComparablePoint = 2
+        Case "3": GradeToComparablePoint = 3
+        Case "4": GradeToComparablePoint = 4
+        Case "5": GradeToComparablePoint = 5
+        Case "6": GradeToComparablePoint = 6
+
+        ' G1 (A best -> E worst)
+        Case "A": GradeToComparablePoint = 1
+        Case "B": GradeToComparablePoint = 2
+        Case "C": GradeToComparablePoint = 3
+        Case "D": GradeToComparablePoint = 4
+        Case "E": GradeToComparablePoint = 5
+
+        Case Else
+            GradeToComparablePoint = Empty
+    End Select
+End Function
+
+Private Function IsFailByComparablePoint(ByVal pt As Double) As Boolean
+    ' Cross-scheme approximation:
+    '   G3 fail bands: D7/E8/F9 => >=7
+    '   G2 fail band: 6
+    '   G1 fail band: E (5)
+    ' This treats high numeric points as weaker outcomes across schemes.
+    IsFailByComparablePoint = (pt >= 5#)
+End Function
+
+Private Function TrendLabelFromDelta(ByVal delta As Double) As String
+    If delta <= -2# Then
+        TrendLabelFromDelta = "Significantly Improved"
+    ElseIf delta < 0 Then
+        TrendLabelFromDelta = "Improved"
+    ElseIf delta >= 2# Then
+        TrendLabelFromDelta = "Significantly Declined"
+    ElseIf delta > 0 Then
+        TrendLabelFromDelta = "Declined"
+    Else
+        TrendLabelFromDelta = "Unchanged"
+    End If
+End Function
+
+Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As Long, ByVal declined As Long, _
+                                     ByVal failFrom As Long, ByVal failTo As Long) As String
+    If avgDelta <= -0.5 And improved >= declined And failTo <= failFrom Then
+        RateBandFromMetrics = "Strong Improvement"
+    ElseIf avgDelta <= -0.2 And improved >= declined Then
+        RateBandFromMetrics = "Steady Improvement"
+    ElseIf avgDelta >= 0.5 And declined > improved And failTo >= failFrom Then
+        RateBandFromMetrics = "Strong Decline"
+    ElseIf avgDelta >= 0.2 And declined > improved Then
+        RateBandFromMetrics = "Needs Support"
+    Else
+        RateBandFromMetrics = "Stable"
+    End If
+End Function
+
+Private Function BuildAutoRemark(ByVal rateBand As String, ByVal failFrom As Long, ByVal failTo As Long, _
+                                 ByVal sigImp As Long, ByVal sigDec As Long) As String
+    Select Case rateBand
+        Case "Strong Improvement"
+            BuildAutoRemark = "Clear upward trend since previous assessment. Student is improving in consistency and outcomes."
+        Case "Steady Improvement"
+            BuildAutoRemark = "Positive progress observed. Continue reinforcement to sustain momentum."
+        Case "Strong Decline"
+            BuildAutoRemark = "Noticeable decline since previous assessment. Prompt intervention is recommended."
+        Case "Needs Support"
+            BuildAutoRemark = "Performance has weakened in key areas. Targeted support plan is advised."
+        Case Else
+            BuildAutoRemark = "Overall performance is stable. Focus on converting near-misses into stronger grades."
+    End Select
+
+    If failTo < failFrom Then
+        BuildAutoRemark = BuildAutoRemark & " Fail count has improved (" & failFrom & " -> " & failTo & ")."
+    ElseIf failTo > failFrom Then
+        BuildAutoRemark = BuildAutoRemark & " Fail count increased (" & failFrom & " -> " & failTo & ")."
+    End If
+
+    If sigImp > 0 Then BuildAutoRemark = BuildAutoRemark & " Significant gains: " & sigImp & " subject(s)."
+    If sigDec > 0 Then BuildAutoRemark = BuildAutoRemark & " Significant declines: " & sigDec & " subject(s)."
+End Function
+
+Private Function BuildTalkingPoints(ByVal topImproved As String, ByVal topDeclined As String, _
+                                    ByVal abSubjects As String, ByVal rateBand As String) As String
+    Dim s As String
+    s = ""
+
+    If topImproved <> "" Then s = s & "Strength: " & topImproved & ". "
+    If topDeclined <> "" Then s = s & "Concern: " & topDeclined & ". "
+
+    If abSubjects <> "" Then
+        s = s & "Attendance concern (AB): " & abSubjects & ". "
+    End If
+
+    Select Case rateBand
+        Case "Strong Improvement", "Steady Improvement"
+            s = s & "Action: sustain current study routine and weekly review."
+        Case "Strong Decline", "Needs Support"
+            s = s & "Action: immediate intervention plan with weekly teacher check-in."
+        Case Else
+            s = s & "Action: set 1-2 subject goals before next assessment."
+    End Select
+
+    BuildTalkingPoints = Trim$(s)
+End Function
+
+Private Sub UpdateTopMoves(ByVal subjectName As String, ByVal ptDelta As Double, _
+                           ByRef topImproved As String, ByRef topDeclined As String)
+    If ptDelta < 0 Then
+        AppendToken topImproved, subjectName & " (" & Format$(ptDelta, "0.0") & ")"
+    ElseIf ptDelta > 0 Then
+        AppendToken topDeclined, subjectName & " (+" & Format$(ptDelta, "0.0") & ")"
+    End If
+End Sub
+
+Private Sub AppendToken(ByRef textValue As String, ByVal token As String)
+    If Trim$(token) = "" Then Exit Sub
+    If textValue <> "" Then textValue = textValue & ", "
+    textValue = textValue & token
+End Sub
+
+Private Function BuildStudentKey(ByVal regNo As String, ByVal studentName As String, ByVal className As String) As String
+    If Trim$(regNo) <> "" Then
+        BuildStudentKey = "R:" & UCase$(Trim$(regNo))
+    ElseIf Trim$(studentName) <> "" Then
+        BuildStudentKey = "N:" & UCase$(Trim$(studentName)) & "|" & UCase$(Trim$(className))
+    Else
+        BuildStudentKey = ""
+    End If
+End Function
+
+Private Function FindHeaderColumn(ByVal ws As Worksheet, ByVal headerText As String) As Long
+    Dim lastCol As Long, c As Long
+    Dim v As String
+
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        v = Trim$(CStr(ws.Cells(1, c).Value))
+        If StrComp(v, headerText, vbTextCompare) = 0 Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+End Function
+
+Private Function HasHeader(ByVal ws As Worksheet, ByVal headerText As String) As Boolean
+    HasHeader = (FindHeaderColumn(ws, headerText) > 0)
+End Function
+
+Private Function GetOrCreateSheet(ByVal sheetName As String) As Worksheet
+    Dim ws As Worksheet
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        ws.Name = sheetName
+    Else
+        ws.Cells.Clear
+    End If
+
+    Set GetOrCreateSheet = ws
+End Function
+
+Private Function ExtractYearFromSheetName(ByVal sheetName As String) As String
+    Dim parts() As String
+    parts = Split(sheetName, "_")
+    If UBound(parts) >= 2 Then
+        ExtractYearFromSheetName = parts(UBound(parts))
+    Else
+        ExtractYearFromSheetName = ""
+    End If
+End Function
+
+Private Function CollectClassesForAssessment(ByVal assessment As String) As Object
+    Dim classes As Object
+    Dim ws As Worksheet
+    Dim classCol As Long, lastRow As Long, r As Long
+    Dim cls As String
+
+    Set classes = CreateObject("Scripting.Dictionary")
+
+    For Each ws In ThisWorkbook.Worksheets
+        If InStr(1, UCase$(ws.Name), "_" & UCase$(assessment) & "_", vbTextCompare) > 0 Then
+            If HasHeader(ws, "Class") And HasHeader(ws, "RegNo") Then
+                classCol = FindHeaderColumn(ws, "Class")
+                If classCol > 0 Then
+                    lastRow = ws.Cells(ws.Rows.Count, classCol).End(xlUp).Row
+                    For r = 2 To lastRow
+                        cls = UCase$(Trim$(CStr(ws.Cells(r, classCol).Value)))
+                        If cls <> "" Then
+                            If Left$(cls, 1) = "S" Then
+                                If Not classes.Exists(cls) Then classes.Add cls, cls
+                            End If
+                        End If
+                    Next r
+                End If
+            End If
+        End If
+    Next ws
+
+    Set CollectClassesForAssessment = classes
+End Function
