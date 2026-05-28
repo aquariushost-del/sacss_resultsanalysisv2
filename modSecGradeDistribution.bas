@@ -1366,7 +1366,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
-    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & " (VR excluded)"
+    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & " (VR excluded; AB considered 0 marks)"
     wsOut.Range("A2").Font.Italic = True
 
     wsOut.Cells(4, 1).value = "Level"
