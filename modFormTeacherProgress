@@ -381,11 +381,13 @@ End Sub
 Private Function FindAssessmentSheetForClass(ByVal classCode As String, ByVal assessment As String) As Worksheet
     Dim ws As Worksheet
     Dim lvl As String
+    Dim aliases As Collection
     lvl = UCase$(Left$(Trim$(classCode), 2))
+    Set aliases = GetAssessmentAliases(assessment)
 
     For Each ws In ThisWorkbook.Worksheets
         If UCase$(ws.Name) Like lvl & "_*" Then
-            If InStr(1, UCase$(ws.Name), "_" & UCase$(assessment) & "_", vbTextCompare) > 0 Then
+            If SheetNameMatchesAssessment(ws.Name, aliases) Then
                 If HasHeader(ws, "Class") And HasHeader(ws, "RegNo") Then
                     Set FindAssessmentSheetForClass = ws
                     Exit Function
@@ -714,11 +716,13 @@ Private Function CollectClassesForAssessment(ByVal assessment As String) As Obje
     Dim ws As Worksheet
     Dim classCol As Long, lastRow As Long, r As Long
     Dim cls As String
+    Dim aliases As Collection
 
     Set classes = CreateObject("Scripting.Dictionary")
+    Set aliases = GetAssessmentAliases(assessment)
 
     For Each ws In ThisWorkbook.Worksheets
-        If InStr(1, UCase$(ws.Name), "_" & UCase$(assessment) & "_", vbTextCompare) > 0 Then
+        If SheetNameMatchesAssessment(ws.Name, aliases) Then
             If HasHeader(ws, "Class") And HasHeader(ws, "RegNo") Then
                 classCol = FindHeaderColumn(ws, "Class")
                 If classCol > 0 Then
@@ -737,4 +741,45 @@ Private Function CollectClassesForAssessment(ByVal assessment As String) As Obje
     Next ws
 
     Set CollectClassesForAssessment = classes
+End Function
+
+Private Function GetAssessmentAliases(ByVal assessment As String) As Collection
+    Dim c As New Collection
+    Dim a As String
+
+    a = UCase$(Trim$(assessment))
+
+    On Error Resume Next
+    c.Add a, a
+    Select Case a
+        Case "WA1", "TERM1WA"
+            c.Add "TERM1WA", "TERM1WA"
+            c.Add "WA1", "WA1"
+        Case "WA2", "TERM2WA", "TERM2NWA"
+            c.Add "TERM2WA", "TERM2WA"
+            c.Add "TERM2NWA", "TERM2NWA"
+            c.Add "WA2", "WA2"
+        Case "WA3", "TERM3WA", "TERM3NWA"
+            c.Add "TERM3WA", "TERM3WA"
+            c.Add "TERM3NWA", "TERM3NWA"
+            c.Add "WA3", "WA3"
+        Case "EYE"
+            c.Add "EYE", "EYE"
+    End Select
+    On Error GoTo 0
+
+    Set GetAssessmentAliases = c
+End Function
+
+Private Function SheetNameMatchesAssessment(ByVal sheetName As String, ByVal aliases As Collection) As Boolean
+    Dim upName As String
+    Dim v As Variant
+
+    upName = "_" & UCase$(sheetName) & "_"
+    For Each v In aliases
+        If InStr(1, upName, "_" & CStr(v) & "_", vbTextCompare) > 0 Then
+            SheetNameMatchesAssessment = True
+            Exit Function
+        End If
+    Next v
 End Function
