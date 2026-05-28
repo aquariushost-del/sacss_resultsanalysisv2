@@ -260,7 +260,7 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
     End If
     delta = Round(avgTo - avgFrom, 2)
 
-    rateBand = RateBandFromMetrics(delta, improved, declined, failFrom, failTo)
+    rateBand = RateBandFromMetrics(delta, improved, declined, failFrom, failTo, sigImp, sigDec, CountListItems(abList))
     remark = BuildAutoRemark(rateBand, delta, improved, declined, unchanged, failFrom, failTo, sigImp, sigDec, abList, vrList)
     talkingPoints = BuildTalkingPoints(topImproved, topDeclined, failListTo, abList, vrList, rateBand, delta, failFrom, failTo)
 
@@ -366,6 +366,16 @@ Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Columns("R:S").WrapText = True
     ws.Columns("E:Q").HorizontalAlignment = xlCenter
     ws.Range("A4:S4").VerticalAlignment = xlCenter
+
+    ' Freeze header row (row 4) so it remains visible when scrolling.
+    On Error Resume Next
+    ws.Activate
+    If Not ActiveWindow Is Nothing Then
+        ActiveWindow.FreezePanes = False
+        ws.Range("A5").Select
+        ActiveWindow.FreezePanes = True
+    End If
+    On Error GoTo 0
 
     ' Shade by Rate of Improvement (column Q)
     For r = 5 To lastRow
@@ -643,18 +653,50 @@ Private Function TrendLabelFromDelta(ByVal delta As Double) As String
 End Function
 
 Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As Long, ByVal declined As Long, _
-                                     ByVal failFrom As Long, ByVal failTo As Long) As String
-    If avgDelta <= -0.5 And improved >= declined And failTo <= failFrom Then
+                                     ByVal failFrom As Long, ByVal failTo As Long, _
+                                     ByVal sigImp As Long, ByVal sigDec As Long, _
+                                     ByVal abCount As Long) As String
+    Dim failDelta As Long
+    failDelta = failTo - failFrom
+
+    If avgDelta <= -0.75 And failDelta <= -1 And improved >= declined Then
         RateBandFromMetrics = "Strong Improvement"
-    ElseIf avgDelta <= -0.2 And improved >= declined Then
+    ElseIf avgDelta <= -0.25 And improved >= declined Then
         RateBandFromMetrics = "Steady Improvement"
-    ElseIf avgDelta > 0.75 And declined > improved And failTo >= failFrom Then
+    ElseIf avgDelta >= 0.75 And (failDelta >= 1 Or sigDec >= 1 Or declined > improved) Then
         RateBandFromMetrics = "Strong Decline"
-    ElseIf avgDelta >= 0.2 And declined > improved Then
+    ElseIf avgDelta >= 0.25 And (failDelta >= 1 Or declined >= improved) Then
         RateBandFromMetrics = "Needs Support"
     Else
         RateBandFromMetrics = "Stable"
     End If
+
+    ' Overrides
+    If abCount >= 2 Then
+        If RateBandFromMetrics = "Stable" Or RateBandFromMetrics = "Steady Improvement" Then
+            RateBandFromMetrics = "Needs Support"
+        End If
+    End If
+
+    If failTo >= 3 And failDelta >= 1 Then
+        RateBandFromMetrics = "Strong Decline"
+    End If
+
+    If sigImp >= 2 And failTo <= failFrom Then
+        If RateBandFromMetrics = "Stable" Then RateBandFromMetrics = "Steady Improvement"
+    End If
+End Function
+
+Private Function CountListItems(ByVal listText As String) As Long
+    Dim s As String
+    Dim parts() As String
+    Dim i As Long
+    s = Trim$(listText)
+    If s = "" Then Exit Function
+    parts = Split(s, ",")
+    For i = LBound(parts) To UBound(parts)
+        If Trim$(parts(i)) <> "" Then CountListItems = CountListItems + 1
+    Next i
 End Function
 
 Private Function BuildAutoRemark(ByVal rateBand As String, ByVal avgDelta As Double, _
@@ -663,6 +705,7 @@ Private Function BuildAutoRemark(ByVal rateBand As String, ByVal avgDelta As Dou
                                  ByVal sigImp As Long, ByVal sigDec As Long, _
                                  ByVal abSubjects As String, ByVal vrSubjects As String) As String
     Dim s As String
+    Dim line As String
     Dim totalCompared As Long
     totalCompared = improved + declined + unchanged
 
@@ -680,27 +723,28 @@ Private Function BuildAutoRemark(ByVal rateBand As String, ByVal avgDelta As Dou
     End Select
 
     If totalCompared > 0 Then
-        s = s & " Subject movement: " & improved & " improved, " & declined & " declined, " & unchanged & " unchanged."
+        AppendLine s, "Subject movement: " & improved & " improved, " & declined & " declined, " & unchanged & " unchanged."
     End If
 
     If failTo < failFrom Then
-        s = s & " Fail count improved (" & failFrom & " -> " & failTo & ")."
+        line = "Fail count improved (" & failFrom & " -> " & failTo & ")."
     ElseIf failTo > failFrom Then
-        s = s & " Fail count increased (" & failFrom & " -> " & failTo & ")."
+        line = "Fail count increased (" & failFrom & " -> " & failTo & ")."
     Else
-        s = s & " Fail count remained at " & failTo & "."
+        line = "Fail count remained at " & failTo & "."
     End If
+    AppendLine s, line
 
-    If sigImp > 0 Then s = s & " Significant gains in " & sigImp & " subject(s)."
-    If sigDec > 0 Then s = s & " Significant declines in " & sigDec & " subject(s)."
+    If sigImp > 0 Then AppendLine s, "Significant gains in " & sigImp & " subject(s)."
+    If sigDec > 0 Then AppendLine s, "Significant declines in " & sigDec & " subject(s)."
 
-    If abSubjects <> "" Then s = s & " AB recorded in: " & abSubjects & "."
-    If vrSubjects <> "" Then s = s & " VR recorded in: " & vrSubjects & "."
+    If abSubjects <> "" Then AppendLine s, "AB recorded in: " & abSubjects & "."
+    If vrSubjects <> "" Then AppendLine s, "VR recorded in: " & vrSubjects & "."
 
     If avgDelta <= -1 Then
-        s = s & " Improvement rate is strong and should be sustained."
+        AppendLine s, "Improvement rate is strong and should be sustained."
     ElseIf avgDelta >= 1 Then
-        s = s & " Decline is substantial and needs urgent follow-through."
+        AppendLine s, "Decline is substantial and needs urgent follow-through."
     End If
 
     BuildAutoRemark = s
@@ -712,43 +756,53 @@ Private Function BuildTalkingPoints(ByVal topImproved As String, ByVal topDeclin
                                     ByVal rateBand As String, ByVal avgDelta As Double, _
                                     ByVal failFrom As Long, ByVal failTo As Long) As String
     Dim s As String
+    Dim actionLine As String
     s = ""
 
-    If topImproved <> "" Then s = s & "Strength: " & topImproved & ". "
-    If topDeclined <> "" Then s = s & "Concern: " & topDeclined & ". "
+    If topImproved <> "" Then AppendLine s, "Strength: " & topImproved & "."
+    If topDeclined <> "" Then AppendLine s, "Concern: " & topDeclined & "."
 
-    If abSubjects <> "" Then s = s & "Attendance concern (AB): " & abSubjects & ". "
-    If vrSubjects <> "" Then s = s & "VR noted: " & vrSubjects & ". "
+    If abSubjects <> "" Then AppendLine s, "Attendance concern (AB): " & abSubjects & "."
+    If vrSubjects <> "" Then AppendLine s, "VR noted: " & vrSubjects & "."
 
     If failTo > failFrom Then
-        s = s & "Outcome shift: fail count increased (" & failFrom & " -> " & failTo & "). "
+        AppendLine s, "Outcome shift: fail count increased (" & failFrom & " -> " & failTo & ")."
     ElseIf failTo < failFrom Then
-        s = s & "Outcome shift: fail count reduced (" & failFrom & " -> " & failTo & "). "
+        AppendLine s, "Outcome shift: fail count reduced (" & failFrom & " -> " & failTo & ")."
     End If
 
     If avgDelta <= -0.5 Then
-        s = s & "Progress trend: strong positive momentum. "
+        AppendLine s, "Progress trend: strong positive momentum."
     ElseIf avgDelta < 0 Then
-        s = s & "Progress trend: modest positive movement. "
+        AppendLine s, "Progress trend: modest positive movement."
     ElseIf avgDelta >= 0.5 Then
-        s = s & "Progress trend: clear decline vs previous assessment. "
+        AppendLine s, "Progress trend: clear decline vs previous assessment."
     ElseIf avgDelta > 0 Then
-        s = s & "Progress trend: slight decline; monitor closely. "
+        AppendLine s, "Progress trend: slight decline; monitor closely."
     End If
 
     Select Case rateBand
         Case "Strong Improvement", "Steady Improvement"
-            s = s & "Action: sustain study routine, set next-target grades, and continue weekly review."
+            actionLine = "Action: sustain study routine, set next-target grades, and continue weekly review."
         Case "Strong Decline", "Needs Support"
-            s = s & "Action: immediate intervention plan, parent follow-up, and weekly teacher check-in."
+            actionLine = "Action: immediate intervention plan, parent follow-up, and weekly teacher check-in."
         Case Else
-            s = s & "Action: set 1-2 priority subject goals and track completion weekly."
+            actionLine = "Action: set 1-2 priority subject goals and track completion weekly."
     End Select
 
-    s = s & " " & BuildSubjectSpecificAction(topDeclined, failedSubjectsTo)
+    If BuildSubjectSpecificAction(topDeclined, failedSubjectsTo) <> "" Then
+        actionLine = actionLine & " " & BuildSubjectSpecificAction(topDeclined, failedSubjectsTo)
+    End If
+    AppendLine s, actionLine
 
     BuildTalkingPoints = Trim$(s)
 End Function
+
+Private Sub AppendLine(ByRef targetText As String, ByVal lineText As String)
+    If Trim$(lineText) = "" Then Exit Sub
+    If targetText <> "" Then targetText = targetText & vbLf
+    targetText = targetText & lineText
+End Sub
 
 Private Function BuildSubjectSpecificAction(ByVal declinedSubjects As String, ByVal failedSubjects As String) As String
     Dim allText As String
