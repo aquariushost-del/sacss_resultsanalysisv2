@@ -63,6 +63,8 @@ Public Sub BuildFormTeacherProgressAllClasses(ByVal fromAssessment As String, By
     Dim classes As Object
     Dim classCode As Variant
     Dim builtCount As Long
+    Dim skippedCount As Long
+    Dim wsFrom As Worksheet, wsTo As Worksheet
 
     Set classes = CollectClassesForAssessment(toAssessment)
     If classes.Count = 0 Then
@@ -72,11 +74,18 @@ Public Sub BuildFormTeacherProgressAllClasses(ByVal fromAssessment As String, By
 
     builtCount = 0
     For Each classCode In classes.Keys
-        BuildFormTeacherProgressForClass CStr(classCode), fromAssessment, toAssessment, False
-        builtCount = builtCount + 1
+        Set wsFrom = FindAssessmentSheetForClass(CStr(classCode), fromAssessment)
+        Set wsTo = FindAssessmentSheetForClass(CStr(classCode), toAssessment)
+        If Not wsFrom Is Nothing And Not wsTo Is Nothing Then
+            BuildFormTeacherProgressForClass CStr(classCode), fromAssessment, toAssessment, False
+            builtCount = builtCount + 1
+        Else
+            skippedCount = skippedCount + 1
+        End If
     Next classCode
 
-    MsgBox "Form teacher progress generated for " & builtCount & " class(es): " & fromAssessment & " -> " & toAssessment, vbInformation
+    MsgBox "Form teacher progress generated for " & builtCount & " class(es): " & fromAssessment & " -> " & toAssessment & _
+           IIf(skippedCount > 0, vbCrLf & "Skipped (missing source sheets): " & skippedCount, ""), vbInformation
 End Sub
 
 Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
@@ -112,8 +121,8 @@ Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
 
     yearVal = ExtractYearFromSheetName(wsTo.Name)
 
-    Set wsOut = GetOrCreateSheet("FT_Progress_" & classCode & "_" & fromAssessment & "_" & toAssessment)
-    Set wsDelta = GetOrCreateSheet("FT_SubjectDelta_" & classCode & "_" & fromAssessment & "_" & toAssessment)
+    Set wsOut = GetOrCreateSheet(BuildReportSheetName("FT_Progress", classCode, fromAssessment, toAssessment))
+    Set wsDelta = GetOrCreateSheet(BuildReportSheetName("FT_SubjectDelta", classCode, fromAssessment, toAssessment))
 
     PrepareProgressHeader wsOut, classCode, fromAssessment, toAssessment, yearVal
     PrepareSubjectDeltaHeader wsDelta, classCode, fromAssessment, toAssessment, yearVal
@@ -711,6 +720,64 @@ Private Function ExtractYearFromSheetName(ByVal sheetName As String) As String
     End If
 End Function
 
+Private Function BuildReportSheetName(ByVal prefix As String, _
+                                      ByVal classCode As String, _
+                                      ByVal fromAssessment As String, _
+                                      ByVal toAssessment As String) As String
+    Dim safeClass As String, safeFrom As String, safeTo As String
+    Dim tag As String, shortPrefix As String
+    Dim maxClassLen As Long
+
+    safeClass = SanitizeSheetToken(classCode)
+    safeFrom = SanitizeSheetToken(fromAssessment)
+    safeTo = SanitizeSheetToken(toAssessment)
+    tag = Right$("0000" & CStr(Abs(SimpleTextHash(safeClass))), 4)
+
+    If UCase$(prefix) = "FT_SUBJECTDELTA" Then
+        shortPrefix = "FD"
+    Else
+        shortPrefix = "FP"
+    End If
+
+    ' Target format:
+    '   FP_<Class>_<From>_<To>_<Hash>
+    '   FD_<Class>_<From>_<To>_<Hash>
+    maxClassLen = 31 - (Len(shortPrefix) + Len(safeFrom) + Len(safeTo) + Len(tag) + 4)
+    If maxClassLen < 3 Then maxClassLen = 3
+    If Len(safeClass) > maxClassLen Then safeClass = Left$(safeClass, maxClassLen)
+
+    BuildReportSheetName = shortPrefix & "_" & safeClass & "_" & safeFrom & "_" & safeTo & "_" & tag
+    If Len(BuildReportSheetName) > 31 Then BuildReportSheetName = Left$(BuildReportSheetName, 31)
+End Function
+
+Private Function SanitizeSheetToken(ByVal token As String) As String
+    Dim s As String
+    Dim badChars As Variant, ch As Variant
+
+    s = Trim$(token)
+    badChars = Array(":", "\", "/", "?", "*", "[", "]")
+    For Each ch In badChars
+        s = Replace$(s, CStr(ch), "-")
+    Next ch
+
+    s = Replace$(s, vbCr, " ")
+    s = Replace$(s, vbLf, " ")
+    s = Application.WorksheetFunction.Trim(s)
+    If s = "" Then s = "X"
+
+    SanitizeSheetToken = s
+End Function
+
+Private Function SimpleTextHash(ByVal s As String) As Long
+    Dim i As Long
+    Dim h As Long
+    h = 0
+    For i = 1 To Len(s)
+        h = ((h * 31) + Asc(Mid$(s, i, 1))) Mod 10000
+    Next i
+    SimpleTextHash = h
+End Function
+
 Private Function CollectClassesForAssessment(ByVal assessment As String) As Object
     Dim classes As Object
     Dim ws As Worksheet
@@ -754,6 +821,7 @@ Private Function GetAssessmentAliases(ByVal assessment As String) As Collection
     Select Case a
         Case "WA1", "TERM1WA"
             c.Add "TERM1WA", "TERM1WA"
+            c.Add "TERM1NWA", "TERM1NWA"
             c.Add "WA1", "WA1"
         Case "WA2", "TERM2WA", "TERM2NWA"
             c.Add "TERM2WA", "TERM2WA"
