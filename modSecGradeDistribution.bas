@@ -985,9 +985,10 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim attemptedCount As Long, passCount As Long, failCount As Long
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
+    Dim abSubjects As String, attemptedSubjectsDisplay As String
     Dim vrSubjects As String, rawGrade As String, rawScore As String
     Dim subjectName As String
-    Dim isVrSubject As Boolean
+    Dim isVrSubject As Boolean, isAbSubject As Boolean
     Dim g1Taken As Long, g2Taken As Long, g3Taken As Long
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long
     Dim groupTotalCount As Long
@@ -1086,6 +1087,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         failedSubjects = ""
         attemptedSubjects = ""
         vrSubjects = ""
+        abSubjects = ""
         g1Taken = 0
         g2Taken = 0
         g3Taken = 0
@@ -1117,6 +1119,13 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             If isVrSubject Then
                 If vrSubjects <> "" Then vrSubjects = vrSubjects & ", "
                 vrSubjects = vrSubjects & subjectNames(i)
+                GoTo NextSubject
+            End If
+
+            isAbSubject = (rawGrade = "AB" Or rawScore = "AB")
+            If isAbSubject Then
+                If abSubjects <> "" Then abSubjects = abSubjects & ", "
+                abSubjects = abSubjects & subjectNames(i)
                 GoTo NextSubject
             End If
 
@@ -1160,7 +1169,15 @@ NextSubject:
             wsOut.Cells(outRow, 8).value = failedSubjects
             wsOut.Cells(outRow, 9).value = riskBand
             wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
-            wsOut.Cells(outRow, 12).value = attemptedSubjects
+            attemptedSubjectsDisplay = attemptedSubjects
+            If abSubjects <> "" Then
+                If attemptedSubjectsDisplay <> "" Then
+                    attemptedSubjectsDisplay = attemptedSubjectsDisplay & " (AB: " & abSubjects & ")"
+                Else
+                    attemptedSubjectsDisplay = "(AB: " & abSubjects & ")"
+                End If
+            End If
+            wsOut.Cells(outRow, 12).value = attemptedSubjectsDisplay
             wsOut.Cells(outRow, 13).value = vrSubjects
             displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
             wsOut.Cells(outRow, 14).value = displayGroup
