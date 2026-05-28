@@ -1,6 +1,11 @@
 Attribute VB_Name = "modFormTeacherProgress"
 Option Explicit
 
+Private Const FP_NAV_SHEET_NAME As String = "Dashboard"
+Private Const FP_NAV_START_CELL As String = "T3"
+Private Const FP_NAV_BTN_PREFIX As String = "Nav_FP_"
+Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
+
 '=========================================================
 ' Module: modFormTeacherProgress
 '
@@ -84,6 +89,7 @@ Public Sub BuildFormTeacherProgressAllClasses(ByVal fromAssessment As String, By
         End If
     Next classCode
 
+    BuildFormTeacherProgressNavigation
     MsgBox "Form teacher progress generated for " & builtCount & " class(es): " & fromAssessment & " -> " & toAssessment & _
            IIf(skippedCount > 0, vbCrLf & "Skipped (missing source sheets): " & skippedCount, ""), vbInformation
 End Sub
@@ -95,8 +101,8 @@ Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
     Dim wsFrom As Worksheet, wsTo As Worksheet
     Dim idxFrom As Object, idxTo As Object
     Dim subjectMap As Object
-    Dim wsOut As Worksheet, wsDelta As Worksheet
-    Dim outRow As Long, deltaRow As Long
+    Dim wsOut As Worksheet
+    Dim outRow As Long
     Dim studentKey As Variant
     Dim studentRec As Variant
     Dim regNo As String, studentName As String, cls As String
@@ -122,13 +128,10 @@ Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
     yearVal = ExtractYearFromSheetName(wsTo.Name)
 
     Set wsOut = GetOrCreateSheet(BuildReportSheetName("FT_Progress", classCode, fromAssessment, toAssessment))
-    Set wsDelta = GetOrCreateSheet(BuildReportSheetName("FT_SubjectDelta", classCode, fromAssessment, toAssessment))
 
     PrepareProgressHeader wsOut, classCode, fromAssessment, toAssessment, yearVal
-    PrepareSubjectDeltaHeader wsDelta, classCode, fromAssessment, toAssessment, yearVal
 
     outRow = 5
-    deltaRow = 5
 
     For Each studentKey In idxTo.Keys
         studentRec = idxTo(studentKey) ' Array(regNo, name, class, row)
@@ -145,12 +148,12 @@ Public Sub BuildFormTeacherProgressForClass(ByVal classCode As String, _
         WriteOneStudentProgress wsFrom, wsTo, subjectMap, fromRow, toRow, _
                                 regNo, studentName, cls, _
                                 fromAssessment, toAssessment, _
-                                wsOut, outRow, wsDelta, deltaRow
+                                wsOut, outRow
         outRow = outRow + 1
     Next studentKey
 
     FinalizeProgressSheet wsOut, outRow - 1
-    FinalizeSubjectDeltaSheet wsDelta, deltaRow - 1
+    BuildFormTeacherProgressNavigation
 
     If showDoneMessage Then
         MsgBox "Form teacher progress generated for " & classCode & ": " & fromAssessment & " -> " & toAssessment, vbInformation
@@ -161,8 +164,7 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
                                     ByVal fromRow As Long, ByVal toRow As Long, _
                                     ByVal regNo As String, ByVal studentName As String, ByVal cls As String, _
                                     ByVal fromAssessment As String, ByVal toAssessment As String, _
-                                    ByVal wsOut As Worksheet, ByVal outRow As Long, _
-                                    ByVal wsDelta As Worksheet, ByRef deltaRow As Long)
+                                    ByVal wsOut As Worksheet, ByVal outRow As Long)
 
     Dim subj As Variant
     Dim rec As Variant
@@ -183,21 +185,19 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
     attemptedTo = 0
 
     For Each subj In subjectMap.Keys
-        rec = subjectMap(subj) ' Array(fromGradeCol, toGradeCol)
+        rec = subjectMap(subj) ' Array(fromColsCsv, toColsCsv)
 
         fromGrade = ""
         fromRaw = ""
         toGrade = ""
         toRaw = ""
 
-        If fromRow > 0 And CLng(rec(0)) > 0 Then
-            fromRaw = UCase$(Trim$(CStr(wsFrom.Cells(fromRow, CLng(rec(0))).Value)))
-            fromGrade = NormalizeGenericGrade(fromRaw)
+        If fromRow > 0 Then
+            ResolveBestGradeForBaseSubject wsFrom, fromRow, CStr(rec(0)), fromRaw, fromGrade
         End If
 
-        If toRow > 0 And CLng(rec(1)) > 0 Then
-            toRaw = UCase$(Trim$(CStr(wsTo.Cells(toRow, CLng(rec(1))).Value)))
-            toGrade = NormalizeGenericGrade(toRaw)
+        If toRow > 0 Then
+            ResolveBestGradeForBaseSubject wsTo, toRow, CStr(rec(1)), toRaw, toGrade
         End If
 
         ' Track AB / VR explicitly from TO assessment
@@ -215,13 +215,13 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
         fromPt = GradeToComparablePoint(fromGrade)
         toPt = GradeToComparablePoint(toGrade)
 
-        If IsNumeric(fromPt) Then
+        If IsValidComparablePoint(fromPt) Then
             sumFrom = sumFrom + CDbl(fromPt)
             nFrom = nFrom + 1
             If IsFailByComparablePoint(CDbl(fromPt)) Then failFrom = failFrom + 1
         End If
 
-        If IsNumeric(toPt) Then
+        If IsValidComparablePoint(toPt) Then
             sumTo = sumTo + CDbl(toPt)
             nTo = nTo + 1
             If IsFailByComparablePoint(CDbl(toPt)) Then
@@ -230,7 +230,7 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
             End If
         End If
 
-        If IsNumeric(fromPt) And IsNumeric(toPt) Then
+        If IsValidComparablePoint(fromPt) And IsValidComparablePoint(toPt) Then
             ptDelta = CDbl(toPt) - CDbl(fromPt) ' lower is better
 
             If ptDelta < 0 Then
@@ -244,9 +244,6 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
             End If
 
             UpdateTopMoves CStr(subj), ptDelta, topImproved, topDeclined
-            WriteSubjectDeltaRow wsDelta, deltaRow, regNo, studentName, cls, CStr(subj), _
-                                fromGrade, toGrade, ptDelta, TrendLabelFromDelta(ptDelta)
-            deltaRow = deltaRow + 1
         End If
     Next subj
 
@@ -441,27 +438,37 @@ Private Function BuildSubjectMap(ByVal wsFrom As Worksheet, ByVal wsTo As Worksh
     Dim m As Object
     Dim mapFrom As Object, mapTo As Object
     Dim subj As Variant
-    Dim arr(0 To 1) As Long
+    Dim baseSubj As String
+    Dim arr(0 To 1) As String
 
     Set m = CreateObject("Scripting.Dictionary")
     Set mapFrom = GetGradeColumnsBySubject(wsFrom)
     Set mapTo = GetGradeColumnsBySubject(wsTo)
 
     For Each subj In mapTo.Keys
-        If Not m.Exists(CStr(subj)) Then
-            arr(0) = 0
-            arr(1) = CLng(mapTo(subj))
-            If mapFrom.Exists(CStr(subj)) Then arr(0) = CLng(mapFrom(subj))
-            m.Add CStr(subj), arr
+        baseSubj = NormalizeBaseSubjectName(CStr(subj))
+        If Not m.Exists(baseSubj) Then
+            arr(0) = ""
+            arr(1) = ""
+            m.Add baseSubj, arr
         End If
+        arr = m(baseSubj)
+        arr(1) = AppendColCsv(arr(1), CLng(mapTo(subj)))
+        If mapFrom.Exists(CStr(subj)) Then arr(0) = AppendColCsv(arr(0), CLng(mapFrom(subj)))
+        m(baseSubj) = arr
     Next subj
 
     For Each subj In mapFrom.Keys
-        If Not m.Exists(CStr(subj)) Then
-            arr(0) = CLng(mapFrom(subj))
-            arr(1) = 0
-            m.Add CStr(subj), arr
+        baseSubj = NormalizeBaseSubjectName(CStr(subj))
+        If Not m.Exists(baseSubj) Then
+            arr(0) = ""
+            arr(1) = ""
+            m.Add baseSubj, arr
         End If
+        arr = m(baseSubj)
+        arr(0) = AppendColCsv(arr(0), CLng(mapFrom(subj)))
+        If mapTo.Exists(CStr(subj)) Then arr(1) = AppendColCsv(arr(1), CLng(mapTo(subj)))
+        m(baseSubj) = arr
     Next subj
 
     Set BuildSubjectMap = m
@@ -561,6 +568,13 @@ Private Function GradeToComparablePoint(ByVal gradeStr As String) As Variant
         Case Else
             GradeToComparablePoint = Empty
     End Select
+End Function
+
+Private Function IsValidComparablePoint(ByVal v As Variant) As Boolean
+    If Not IsNumeric(v) Then Exit Function
+    If IsEmpty(v) Or IsNull(v) Then Exit Function
+    If CDbl(v) < 1# Then Exit Function
+    IsValidComparablePoint = True
 End Function
 
 Private Function IsFailByComparablePoint(ByVal pt As Double) As Boolean
@@ -733,15 +747,10 @@ Private Function BuildReportSheetName(ByVal prefix As String, _
     safeTo = SanitizeSheetToken(toAssessment)
     tag = Right$("0000" & CStr(Abs(SimpleTextHash(safeClass))), 4)
 
-    If UCase$(prefix) = "FT_SUBJECTDELTA" Then
-        shortPrefix = "FD"
-    Else
-        shortPrefix = "FP"
-    End If
+    shortPrefix = "FP"
 
     ' Target format:
     '   FP_<Class>_<From>_<To>_<Hash>
-    '   FD_<Class>_<From>_<To>_<Hash>
     maxClassLen = 31 - (Len(shortPrefix) + Len(safeFrom) + Len(safeTo) + Len(tag) + 4)
     If maxClassLen < 3 Then maxClassLen = 3
     If Len(safeClass) > maxClassLen Then safeClass = Left$(safeClass, maxClassLen)
@@ -778,6 +787,86 @@ Private Function SimpleTextHash(ByVal s As String) As Long
     SimpleTextHash = h
 End Function
 
+Private Function NormalizeBaseSubjectName(ByVal subjectName As String) As String
+    Dim s As String
+    s = UCase$(Trim$(subjectName))
+    s = Replace$(s, "  ", " ")
+
+    If Right$(s, 4) = " G1" Then s = Left$(s, Len(s) - 3)
+    If Right$(s, 4) = " G2" Then s = Left$(s, Len(s) - 3)
+    If Right$(s, 4) = " G3" Then s = Left$(s, Len(s) - 3)
+    If Right$(s, 5) = "- G1" Then s = Left$(s, Len(s) - 4)
+    If Right$(s, 5) = "- G2" Then s = Left$(s, Len(s) - 4)
+    If Right$(s, 5) = "- G3" Then s = Left$(s, Len(s) - 4)
+
+    NormalizeBaseSubjectName = Application.WorksheetFunction.Trim(s)
+End Function
+
+Private Function AppendColCsv(ByVal csv As String, ByVal colNum As Long) As String
+    If colNum <= 0 Then
+        AppendColCsv = csv
+        Exit Function
+    End If
+    If Len(csv) = 0 Then
+        AppendColCsv = CStr(colNum)
+    Else
+        AppendColCsv = csv & "," & CStr(colNum)
+    End If
+End Function
+
+Private Sub ResolveBestGradeForBaseSubject(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal colsCsv As String, _
+                                           ByRef bestRaw As String, ByRef bestGrade As String)
+    Dim parts() As String
+    Dim i As Long, c As Long
+    Dim raw As String, norm As String
+    Dim bestPriority As Long, p As Long
+    Dim header As String
+
+    bestRaw = ""
+    bestGrade = ""
+    bestPriority = -1
+
+    If Len(Trim$(colsCsv)) = 0 Then Exit Sub
+    parts = Split(colsCsv, ",")
+
+    For i = LBound(parts) To UBound(parts)
+        c = CLng(Val(parts(i)))
+        If c > 0 Then
+            raw = UCase$(Trim$(CStr(ws.Cells(rowNum, c).Value)))
+            norm = NormalizeGenericGrade(raw)
+            header = CStr(ws.Cells(1, c).Value)
+            p = TrackPriorityFromHeader(header)
+
+            If norm <> "" Then
+                If p > bestPriority Then
+                    bestPriority = p
+                    bestRaw = raw
+                    bestGrade = norm
+                End If
+            ElseIf bestRaw = "" Then
+                If raw = "AB" Or raw = "VR" Or raw = "MC" Then
+                    bestRaw = raw
+                    bestGrade = ""
+                End If
+            End If
+        End If
+    Next i
+End Sub
+
+Private Function TrackPriorityFromHeader(ByVal headerText As String) As Long
+    Dim h As String
+    h = UCase$(headerText)
+    If InStr(1, h, "G3", vbTextCompare) > 0 Then
+        TrackPriorityFromHeader = 3
+    ElseIf InStr(1, h, "G2", vbTextCompare) > 0 Then
+        TrackPriorityFromHeader = 2
+    ElseIf InStr(1, h, "G1", vbTextCompare) > 0 Then
+        TrackPriorityFromHeader = 1
+    Else
+        TrackPriorityFromHeader = 0
+    End If
+End Function
+
 Private Function CollectClassesForAssessment(ByVal assessment As String) As Object
     Dim classes As Object
     Dim ws As Worksheet
@@ -809,6 +898,97 @@ Private Function CollectClassesForAssessment(ByVal assessment As String) As Obje
 
     Set CollectClassesForAssessment = classes
 End Function
+
+Public Sub BuildFormTeacherProgressNavigation()
+    Dim wsNav As Worksheet, ws As Worksheet
+    Dim startCell As Range
+    Dim startRow As Long, startCol As Long, rowPtr As Long
+    Dim names() As String
+    Dim n As Long, i As Long, k As Long
+    Dim shp As Shape
+
+    On Error Resume Next
+    Set wsNav = ThisWorkbook.Worksheets(FP_NAV_SHEET_NAME)
+    On Error GoTo 0
+    If wsNav Is Nothing Then Exit Sub
+
+    Set startCell = wsNav.Range(FP_NAV_START_CELL)
+    startRow = startCell.Row
+    startCol = startCell.Column
+
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 200, startCol + 5)).Clear
+    For k = wsNav.Shapes.Count To 1 Step -1
+        Set shp = wsNav.Shapes(k)
+        If Left$(shp.Name, Len(FP_NAV_BTN_PREFIX)) = FP_NAV_BTN_PREFIX Then shp.Delete
+    Next k
+
+    For Each ws In ThisWorkbook.Worksheets
+        If Left$(UCase$(ws.Name), 3) = "FP_" Then
+            n = n + 1
+            ReDim Preserve names(1 To n)
+            names(n) = ws.Name
+        End If
+    Next ws
+
+    wsNav.Cells(startRow, startCol).Value = "Form Teacher Progress"
+    wsNav.Cells(startRow, startCol).Font.Bold = True
+    wsNav.Cells(startRow, startCol).Font.Size = 12
+    rowPtr = startRow + 1
+
+    If n = 0 Then
+        wsNav.Cells(rowPtr, startCol).Value = "(No FP tabs found.)"
+        wsNav.Cells(rowPtr, startCol).Font.Italic = True
+        Exit Sub
+    End If
+
+    SortStringArrayLocal names
+    For i = LBound(names) To UBound(names)
+        CreateFpNavButton wsNav, names(i), rowPtr, startCol
+        rowPtr = rowPtr + 2
+    Next i
+End Sub
+
+Private Sub CreateFpNavButton(ByVal wsNav As Worksheet, ByVal sheetName As String, ByVal rowNum As Long, ByVal firstCol As Long)
+    Dim shp As Shape
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    leftPos = wsNav.Cells(rowNum, firstCol).Left
+    topPos = wsNav.Cells(rowNum, firstCol).Top
+    btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
+    btnHeight = wsNav.Rows(rowNum).Height * 1.3
+
+    Set shp = wsNav.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, leftPos, topPos, btnWidth, btnHeight)
+    With shp
+        .Name = FP_NAV_BTN_PREFIX & sheetName
+        .Fill.ForeColor.RGB = RGB(222, 235, 247)
+        .Line.ForeColor.RGB = RGB(79, 129, 189)
+        .Line.Weight = 1.2
+        With .TextFrame2
+            .TextRange.Text = sheetName
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 10.5
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(31, 73, 125)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+        End With
+    End With
+    wsNav.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'" & sheetName & "'!A1"
+End Sub
+
+Private Sub SortStringArrayLocal(ByRef arr() As String)
+    Dim i As Long, j As Long
+    Dim temp As String
+    For i = LBound(arr) To UBound(arr) - 1
+        For j = i + 1 To UBound(arr)
+            If arr(j) < arr(i) Then
+                temp = arr(i)
+                arr(i) = arr(j)
+                arr(j) = temp
+            End If
+        Next j
+    Next i
+End Sub
 
 Private Function GetAssessmentAliases(ByVal assessment As String) As Collection
     Dim c As New Collection
