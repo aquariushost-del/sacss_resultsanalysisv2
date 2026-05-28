@@ -218,13 +218,13 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
         If IsValidComparablePoint(fromPt) Then
             sumFrom = sumFrom + CDbl(fromPt)
             nFrom = nFrom + 1
-            If IsFailByComparablePoint(CDbl(fromPt)) Then failFrom = failFrom + 1
+            If IsFailGradeGeneric(fromGrade) Then failFrom = failFrom + 1
         End If
 
         If IsValidComparablePoint(toPt) Then
             sumTo = sumTo + CDbl(toPt)
             nTo = nTo + 1
-            If IsFailByComparablePoint(CDbl(toPt)) Then
+            If IsFailGradeGeneric(toGrade) Then
                 failTo = failTo + 1
                 AppendToken failListTo, CStr(subj)
             End If
@@ -596,6 +596,17 @@ Private Function IsFailByComparablePoint(ByVal pt As Double) As Boolean
     '   G1 fail band: E (5)
     ' This treats high numeric points as weaker outcomes across schemes.
     IsFailByComparablePoint = (pt >= 5#)
+End Function
+
+Private Function IsFailGradeGeneric(ByVal gradeStr As String) As Boolean
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+    Select Case g
+        Case "D7", "E8", "F9", "6", "E"
+            IsFailGradeGeneric = True
+        Case Else
+            IsFailGradeGeneric = False
+    End Select
 End Function
 
 Private Function TrendLabelFromDelta(ByVal delta As Double) As String
