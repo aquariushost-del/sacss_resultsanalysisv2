@@ -344,12 +344,19 @@ Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     End If
 
     ws.Columns("A:S").AutoFit
-    ws.Columns("B").ColumnWidth = 22
+    ws.Columns("A").ColumnWidth = 7      ' RegNo
+    ws.Columns("B").ColumnWidth = 24     ' Name
+    ws.Columns("C").ColumnWidth = 17     ' Class
+    ws.Columns("D").ColumnWidth = 12
+    ws.Columns("E:M").ColumnWidth = 10
     ws.Columns("N:P").ColumnWidth = 28
     ws.Columns("Q").ColumnWidth = 18
     ws.Columns("R:S").ColumnWidth = 55
     ws.Columns("R:S").WrapText = True
-    ws.Columns("E:M").HorizontalAlignment = xlCenter
+    ws.Columns("E:Q").HorizontalAlignment = xlCenter
+    ws.Range("A4:S4").VerticalAlignment = xlCenter
+
+    AddFpHomeButton ws
 End Sub
 
 Private Sub FinalizeSubjectDeltaSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
@@ -439,7 +446,7 @@ Private Function BuildSubjectMap(ByVal wsFrom As Worksheet, ByVal wsTo As Worksh
     Dim mapFrom As Object, mapTo As Object
     Dim subj As Variant
     Dim baseSubj As String
-    Dim arr(0 To 1) As String
+    Dim arr As Variant
 
     Set m = CreateObject("Scripting.Dictionary")
     Set mapFrom = GetGradeColumnsBySubject(wsFrom)
@@ -448,9 +455,7 @@ Private Function BuildSubjectMap(ByVal wsFrom As Worksheet, ByVal wsTo As Worksh
     For Each subj In mapTo.Keys
         baseSubj = NormalizeBaseSubjectName(CStr(subj))
         If Not m.Exists(baseSubj) Then
-            arr(0) = ""
-            arr(1) = ""
-            m.Add baseSubj, arr
+            m.Add baseSubj, Array("", "")
         End If
         arr = m(baseSubj)
         arr(1) = AppendColCsv(arr(1), CLng(mapTo(subj)))
@@ -461,9 +466,7 @@ Private Function BuildSubjectMap(ByVal wsFrom As Worksheet, ByVal wsTo As Worksh
     For Each subj In mapFrom.Keys
         baseSubj = NormalizeBaseSubjectName(CStr(subj))
         If Not m.Exists(baseSubj) Then
-            arr(0) = ""
-            arr(1) = ""
-            m.Add baseSubj, arr
+            m.Add baseSubj, Array("", "")
         End If
         arr = m(baseSubj)
         arr(0) = AppendColCsv(arr(0), CLng(mapFrom(subj)))
@@ -988,6 +991,41 @@ Private Sub SortStringArrayLocal(ByRef arr() As String)
             End If
         Next j
     Next i
+End Sub
+
+Private Sub AddFpHomeButton(ByVal ws As Worksheet)
+    Dim shp As Shape
+    Dim tgtCell As Range
+    Dim leftPos As Double, topPos As Double
+    Dim btnWidth As Double, btnHeight As Double
+
+    Set tgtCell = ws.Range("U1")
+    leftPos = tgtCell.Left
+    topPos = tgtCell.Top
+    btnWidth = tgtCell.Width * 1.2
+    btnHeight = tgtCell.Height * 1.2
+
+    On Error Resume Next
+    ws.Shapes("HomeBtnFP").Delete
+    On Error GoTo 0
+
+    Set shp = ws.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, leftPos, topPos, btnWidth, btnHeight)
+    With shp
+        .Name = "HomeBtnFP"
+        .Fill.ForeColor.RGB = RGB(217, 234, 211)
+        .Line.ForeColor.RGB = RGB(106, 168, 79)
+        .Line.Weight = 1.2
+        With .TextFrame2
+            .TextRange.Text = "Home"
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 10.5
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(39, 78, 19)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+        End With
+    End With
+
+    ws.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'Dashboard'!A1"
 End Sub
 
 Private Function GetAssessmentAliases(ByVal assessment As String) As Collection
