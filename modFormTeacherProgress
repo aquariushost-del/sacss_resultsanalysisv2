@@ -1,4 +1,4 @@
-
+Attribute VB_Name = "modFormTeacherProgress"
 Option Explicit
 
 Private Const FP_NAV_SHEET_NAME As String = "Dashboard"
@@ -694,7 +694,7 @@ Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As
         End If
     End If
 
-    If failTo >= 3 And failDelta >= 1 Then
+    If avgDelta >= 1# And failTo >= 3 And failDelta >= 1 Then
         RateBandFromMetrics = "Strong Decline"
     End If
 
