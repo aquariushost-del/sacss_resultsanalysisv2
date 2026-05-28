@@ -671,9 +671,9 @@ Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As
         RateBandFromMetrics = "Strong Improvement"
     ElseIf avgDelta <= -0.25 And improved >= declined Then
         RateBandFromMetrics = "Steady Improvement"
-    ElseIf avgDelta >= 0.75 And (failDelta >= 1 Or sigDec >= 1 Or declined > improved) Then
+    ElseIf avgDelta >= 1# And declined > improved And (failDelta >= 1 Or sigDec >= 2) Then
         RateBandFromMetrics = "Strong Decline"
-    ElseIf avgDelta >= 0.25 And (failDelta >= 1 Or declined >= improved) Then
+    ElseIf avgDelta > 0.25 And (failDelta >= 1 Or declined >= improved Or sigDec >= 2) Then
         RateBandFromMetrics = "Needs Support"
     Else
         If failTo >= 4 Then
