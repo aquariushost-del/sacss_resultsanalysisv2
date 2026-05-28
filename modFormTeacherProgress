@@ -1208,29 +1208,58 @@ Private Sub CreateFpNavButton(ByVal wsNav As Worksheet, ByVal sheetName As Strin
     Dim leftPos As Double, topPos As Double
     Dim btnWidth As Double, btnHeight As Double
     Dim labelText As String
+    Dim fillColor As Long, lineColor As Long, fontColor As Long
 
     leftPos = wsNav.Cells(rowNum, firstCol).Left
     topPos = wsNav.Cells(rowNum, firstCol).Top
     btnWidth = wsNav.Columns(firstCol).Resize(, 5).Width
     btnHeight = wsNav.Rows(rowNum).Height * 1.3
     labelText = BuildFpMenuLabel(sheetName)
+    GetFpLevelPalette sheetName, fillColor, lineColor, fontColor
 
     Set shp = wsNav.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, leftPos, topPos, btnWidth, btnHeight)
     With shp
         .Name = FP_NAV_BTN_PREFIX & sheetName
-        .Fill.ForeColor.RGB = RGB(222, 235, 247)
-        .Line.ForeColor.RGB = RGB(79, 129, 189)
+        .Fill.ForeColor.RGB = fillColor
+        .Line.ForeColor.RGB = lineColor
         .Line.Weight = 1.2
         With .TextFrame2
             .TextRange.Text = labelText
             .TextRange.Font.Name = "Calibri"
             .TextRange.Font.Size = 10.5
-            .TextRange.Font.Fill.ForeColor.RGB = RGB(31, 73, 125)
+            .TextRange.Font.Fill.ForeColor.RGB = fontColor
             .TextRange.ParagraphFormat.Alignment = msoAlignCenter
             .VerticalAnchor = msoAnchorMiddle
         End With
     End With
     wsNav.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'" & sheetName & "'!A1"
+End Sub
+
+Private Sub GetFpLevelPalette(ByVal sheetName As String, ByRef fillColor As Long, ByRef lineColor As Long, ByRef fontColor As Long)
+    Dim upperName As String
+    upperName = UCase$(sheetName)
+
+    If InStr(1, upperName, "_S1-", vbTextCompare) > 0 Then
+        fillColor = RGB(255, 242, 204) ' pastel yellow
+        lineColor = RGB(191, 144, 0)
+        fontColor = RGB(102, 60, 0)
+    ElseIf InStr(1, upperName, "_S2-", vbTextCompare) > 0 Then
+        fillColor = RGB(226, 239, 218) ' pastel green
+        lineColor = RGB(106, 168, 79)
+        fontColor = RGB(39, 78, 19)
+    ElseIf InStr(1, upperName, "_S3-", vbTextCompare) > 0 Then
+        fillColor = RGB(217, 234, 211) ' light mint
+        lineColor = RGB(93, 133, 63)
+        fontColor = RGB(35, 60, 25)
+    ElseIf InStr(1, upperName, "_S4-", vbTextCompare) > 0 Or InStr(1, upperName, "_S5-", vbTextCompare) > 0 Then
+        fillColor = RGB(221, 235, 247) ' pastel blue (shared S4/S5)
+        lineColor = RGB(79, 129, 189)
+        fontColor = RGB(31, 73, 125)
+    Else
+        fillColor = RGB(242, 242, 242)
+        lineColor = RGB(166, 166, 166)
+        fontColor = RGB(68, 68, 68)
+    End If
 End Sub
 
 Private Sub SortStringArrayLocal(ByRef arr() As String)
