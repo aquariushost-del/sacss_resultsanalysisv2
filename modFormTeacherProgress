@@ -349,7 +349,7 @@ Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
         Set rng = ws.Range("A4:S" & lastRow)
         With rng.Borders
             .LineStyle = xlContinuous
-            .Color = RGB(210, 210, 210)
+            .Color = RGB(0, 0, 0)
             .Weight = xlThin
         End With
     End If
@@ -365,6 +365,8 @@ Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Columns("R:S").ColumnWidth = 55
     ws.Columns("R:S").WrapText = True
     ws.Columns("E:Q").HorizontalAlignment = xlCenter
+    ws.Columns("P").WrapText = True
+    ws.Columns("P").HorizontalAlignment = xlLeft
     ws.Range("A4:S4").VerticalAlignment = xlCenter
 
     ' Freeze header row (row 4) so it remains visible when scrolling.
@@ -385,8 +387,14 @@ Private Sub FinalizeProgressSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(226, 239, 218) ' green
             Case "STEADY IMPROVEMENT"
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(235, 241, 222) ' light green
-            Case "STABLE"
+            Case "STABLE - STRONG"
+                ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(226, 239, 218) ' green
+            Case "STABLE - MIXED", "STABLE"
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(242, 242, 242) ' neutral gray
+            Case "STABLE - WATCH"
+                ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(255, 242, 204) ' amber
+            Case "STABLE - HIGH RISK"
+                ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(244, 204, 204) ' red
             Case "NEEDS SUPPORT"
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 19)).Interior.Color = RGB(255, 242, 204) ' amber
             Case "STRONG DECLINE"
@@ -668,12 +676,20 @@ Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As
     ElseIf avgDelta >= 0.25 And (failDelta >= 1 Or declined >= improved) Then
         RateBandFromMetrics = "Needs Support"
     Else
-        RateBandFromMetrics = "Stable"
+        If failTo >= 4 Then
+            RateBandFromMetrics = "Stable - High Risk"
+        ElseIf failTo >= 2 Then
+            RateBandFromMetrics = "Stable - Watch"
+        ElseIf failTo = 0 Then
+            RateBandFromMetrics = "Stable - Strong"
+        Else
+            RateBandFromMetrics = "Stable - Mixed"
+        End If
     End If
 
     ' Overrides
     If abCount >= 2 Then
-        If RateBandFromMetrics = "Stable" Or RateBandFromMetrics = "Steady Improvement" Then
+        If Left$(RateBandFromMetrics, 6) = "Stable" Or RateBandFromMetrics = "Steady Improvement" Then
             RateBandFromMetrics = "Needs Support"
         End If
     End If
@@ -683,7 +699,7 @@ Private Function RateBandFromMetrics(ByVal avgDelta As Double, ByVal improved As
     End If
 
     If sigImp >= 2 And failTo <= failFrom Then
-        If RateBandFromMetrics = "Stable" Then RateBandFromMetrics = "Steady Improvement"
+        If Left$(RateBandFromMetrics, 6) = "Stable" Then RateBandFromMetrics = "Steady Improvement"
     End If
 End Function
 
@@ -718,6 +734,14 @@ Private Function BuildAutoRemark(ByVal rateBand As String, ByVal avgDelta As Dou
             s = "A clear decline is observed compared with the previous assessment and requires immediate intervention."
         Case "Needs Support"
             s = "Performance trend is weakening in key areas and needs closer monitoring and targeted support."
+        Case "Stable - High Risk"
+            s = "Results are broadly stable, but baseline performance remains weak and high-risk."
+        Case "Stable - Watch"
+            s = "Results are stable overall, but there are recurring concerns that require close monitoring."
+        Case "Stable - Strong"
+            s = "Results are stable at a strong level with no current fail concerns."
+        Case "Stable - Mixed"
+            s = "Results are stable with mixed strengths and gaps across subjects."
         Case Else
             s = "Overall performance is stable, with mixed movement across subjects."
     End Select
@@ -786,6 +810,8 @@ Private Function BuildTalkingPoints(ByVal topImproved As String, ByVal topDeclin
             actionLine = "Action: sustain study routine, set next-target grades, and continue weekly review."
         Case "Strong Decline", "Needs Support"
             actionLine = "Action: immediate intervention plan, parent follow-up, and weekly teacher check-in."
+        Case "Stable - Strong", "Stable - Mixed", "Stable - Watch", "Stable - High Risk", "Stable"
+            actionLine = "Action: set 1-2 priority subject goals and track completion weekly."
         Case Else
             actionLine = "Action: set 1-2 priority subject goals and track completion weekly."
     End Select
