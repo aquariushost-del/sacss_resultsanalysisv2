@@ -837,6 +837,7 @@ Private Sub ApplyBoldPrefixes(ByVal tgt As Range)
     Dim labels As Variant
     Dim s As String
     Dim i As Long, p As Long, l As Long
+    Dim startAt As Long
 
     s = CStr(tgt.Value)
     If Len(s) = 0 Then Exit Sub
@@ -849,14 +850,36 @@ Private Sub ApplyBoldPrefixes(ByVal tgt As Range)
     )
 
     On Error Resume Next
+    tgt.Font.Bold = False
+
     For i = LBound(labels) To UBound(labels)
-        p = InStr(1, s, CStr(labels(i)), vbTextCompare)
-        If p > 0 Then
+        startAt = 1
+        Do
+            p = InStr(startAt, s, CStr(labels(i)), vbTextCompare)
+            If p <= 0 Then Exit Do
             l = Len(CStr(labels(i)))
             tgt.Characters(Start:=p, Length:=l).Font.Bold = True
-        End If
+            startAt = p + l
+        Loop
     Next i
     On Error GoTo 0
+End Sub
+
+Public Sub ReformatFpRemarksBoldPrefixes()
+    Dim ws As Worksheet
+    Dim lastRow As Long, r As Long
+
+    For Each ws In ThisWorkbook.Worksheets
+        If Left$(UCase$(ws.Name), 3) = "FP_" Then
+            lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+            If lastRow >= 5 Then
+                For r = 5 To lastRow
+                    ApplyBoldPrefixes ws.Cells(r, 18)
+                    ApplyBoldPrefixes ws.Cells(r, 19)
+                Next r
+            End If
+        End If
+    Next ws
 End Sub
 
 Private Function BuildSubjectSpecificAction(ByVal declinedSubjects As String, ByVal failedSubjects As String) As String
