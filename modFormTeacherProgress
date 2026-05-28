@@ -247,8 +247,17 @@ Private Sub WriteOneStudentProgress(ByVal wsFrom As Worksheet, ByVal wsTo As Wor
         End If
     Next subj
 
-    avgFrom = IIf(nFrom > 0, Round(sumFrom / nFrom, 2), 0#)
-    avgTo = IIf(nTo > 0, Round(sumTo / nTo, 2), 0#)
+    If nFrom > 0 Then
+        avgFrom = Round(sumFrom / nFrom, 2)
+    Else
+        avgFrom = 0#
+    End If
+
+    If nTo > 0 Then
+        avgTo = Round(sumTo / nTo, 2)
+    Else
+        avgTo = 0#
+    End If
     delta = Round(avgTo - avgFrom, 2)
 
     rateBand = RateBandFromMetrics(delta, improved, declined, failFrom, failTo)
