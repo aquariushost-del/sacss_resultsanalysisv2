@@ -985,7 +985,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim attemptedCount As Long, passCount As Long, failCount As Long
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
-    Dim abSubjects As String, attemptedSubjectsDisplay As String
+    Dim abSubjects As String
     Dim vrSubjects As String, rawGrade As String, rawScore As String
     Dim subjectName As String
     Dim isVrSubject As Boolean, isAbSubject As Boolean
@@ -1126,6 +1126,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
             If isAbSubject Then
                 If abSubjects <> "" Then abSubjects = abSubjects & ", "
                 abSubjects = abSubjects & subjectNames(i)
+                failCount = failCount + 1
+                If failedSubjects <> "" Then failedSubjects = failedSubjects & ", "
+                failedSubjects = failedSubjects & subjectNames(i) & " (AB)"
                 GoTo NextSubject
             End If
 
@@ -1169,18 +1172,11 @@ NextSubject:
             wsOut.Cells(outRow, 8).value = failedSubjects
             wsOut.Cells(outRow, 9).value = riskBand
             wsOut.Cells(outRow, 10).value = RiskBandRank(riskBand)
-            attemptedSubjectsDisplay = attemptedSubjects
-            If abSubjects <> "" Then
-                If attemptedSubjectsDisplay <> "" Then
-                    attemptedSubjectsDisplay = attemptedSubjectsDisplay & " (AB: " & abSubjects & ")"
-                Else
-                    attemptedSubjectsDisplay = "(AB: " & abSubjects & ")"
-                End If
-            End If
-            wsOut.Cells(outRow, 12).value = attemptedSubjectsDisplay
+            wsOut.Cells(outRow, 12).value = attemptedSubjects
             wsOut.Cells(outRow, 13).value = vrSubjects
+            wsOut.Cells(outRow, 14).value = abSubjects
             displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
-            wsOut.Cells(outRow, 14).value = displayGroup
+            wsOut.Cells(outRow, 15).value = displayGroup
 
             If riskBand = "AT RISK" Then
                 wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
@@ -1398,7 +1394,8 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 10).value = "SortKey"
     wsOut.Cells(4, 12).value = "Attempted Subjects"
     wsOut.Cells(4, 13).value = "VR Subjects"
-    wsOut.Cells(4, 14).value = "Group"
+    wsOut.Cells(4, 14).value = "AB Subjects"
+    wsOut.Cells(4, 15).value = "Group"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
@@ -1407,14 +1404,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     If lastRow >= 5 Then
-        Set sortRange = wsOut.Range("A4:N" & lastRow)
+        Set sortRange = wsOut.Range("A4:O" & lastRow)
         sortRange.Sort Key1:=wsOut.Range("J5"), Order1:=xlAscending, _
                        Key2:=wsOut.Range("G5"), Order2:=xlDescending, _
                        Key3:=wsOut.Range("D5"), Order3:=xlAscending, _
                        Header:=xlYes
     End If
 
-    wsOut.Columns("A:N").AutoFit
+    wsOut.Columns("A:O").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 15
     wsOut.Columns("C").ColumnWidth = 5
@@ -1430,14 +1427,16 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("L").WrapText = True
     wsOut.Columns("M").ColumnWidth = 15
     wsOut.Columns("M").WrapText = True
-    wsOut.Columns("N").ColumnWidth = 10
-    wsOut.Columns("N").HorizontalAlignment = xlCenter
+    wsOut.Columns("N").ColumnWidth = 25
+    wsOut.Columns("N").WrapText = True
+    wsOut.Columns("O").ColumnWidth = 10
+    wsOut.Columns("O").HorizontalAlignment = xlCenter
     wsOut.Columns("J").EntireColumn.Hidden = True
     wsOut.Range("E4:G4").WrapText = True
-    wsOut.Range("A4:N4").VerticalAlignment = xlCenter
+    wsOut.Range("A4:O4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:N" & lastRow)
+        Set rngTable = wsOut.Range("A4:O" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
