@@ -1,4 +1,4 @@
-Attribute VB_Name = "modFormTeacherProgress"
+
 Option Explicit
 
 Private Const FP_NAV_SHEET_NAME As String = "Dashboard"
