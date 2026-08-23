@@ -595,6 +595,7 @@ Private Function CountCandidates(ByVal ws As Worksheet) As Long
     Dim regCol As Long, nameCol As Long, classCol As Long
     Dim lastRow As Long, r As Long
     Dim keyText As String
+    Dim regText As String, nameText As String, classText As String
     Dim seen As Object
 
     Set seen = CreateObject("Scripting.Dictionary")
@@ -606,12 +607,22 @@ Private Function CountCandidates(ByVal ws As Worksheet) As Long
     lastRow = ws.Cells(ws.Rows.count, classCol).End(xlUp).Row
 
     For r = 2 To lastRow
-        If regCol > 0 Then keyText = Trim$(CStr(ws.Cells(r, regCol).value))
-        If keyText = "" Then keyText = Trim$(CStr(ws.Cells(r, nameCol).value)) & "|" & Trim$(CStr(ws.Cells(r, classCol).value))
-        If Replace(keyText, "|", "") <> "" Then
+        regText = "": nameText = "": classText = "": keyText = ""
+        If regCol > 0 Then regText = Trim$(CStr(ws.Cells(r, regCol).value))
+        If nameCol > 0 Then nameText = Trim$(CStr(ws.Cells(r, nameCol).value))
+        classText = Trim$(CStr(ws.Cells(r, classCol).value))
+
+        ' RegNo is normally a class register number (for example 1..40),
+        ' so it is not unique across an entire level. Class + RegNo is.
+        If regText <> "" Then
+            keyText = classText & "|REG|" & regText
+        ElseIf nameText <> "" Then
+            keyText = classText & "|NAME|" & nameText
+        End If
+
+        If keyText <> "" Then
             If Not seen.Exists(keyText) Then seen.Add keyText, True
         End If
-        keyText = ""
     Next r
 
     CountCandidates = seen.count
