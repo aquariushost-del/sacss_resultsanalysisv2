@@ -58,8 +58,6 @@ Private Const DEFAULT_MIN_N As Long = 10
 '------------------------------------------------------------
 Public Sub DraftResultsSummaryEmail()
     Dim wsSrc As Worksheet
-    Dim sourceName As String
-    Dim defaultName As String
     Dim subjects() As tEmailSubject
     Dim subjectCount As Long
     Dim students() As tEmailStudent
@@ -71,29 +69,8 @@ Public Sub DraftResultsSummaryEmail()
 
     On Error GoTo ErrHandler
 
-    If IsEligibleEmailSourceSheet(ActiveSheet) Then defaultName = ActiveSheet.Name
-
-    sourceName = InputBox( _
-        "Enter the SEC staging-sheet name to summarise:" & vbCrLf & _
-        "Example: S4_PRELIMINARYEXAM_2025", _
-        "Draft Results Summary Email", defaultName)
-    sourceName = Trim$(sourceName)
-    If sourceName = "" Then Exit Sub
-
-    On Error Resume Next
-    Set wsSrc = ThisWorkbook.Worksheets(sourceName)
-    On Error GoTo ErrHandler
-
-    If wsSrc Is Nothing Then
-        MsgBox "Worksheet '" & sourceName & "' was not found.", vbExclamation
-        Exit Sub
-    End If
-
-    If Not IsEligibleEmailSourceSheet(wsSrc) Then
-        MsgBox "The selected sheet is not a suitable SEC staging sheet." & vbCrLf & _
-               "It must contain row-1 headers for Name, Class and at least one (Grade) column.", vbExclamation
-        Exit Sub
-    End If
+    Set wsSrc = SelectEmailSourceByAssessment()
+    If wsSrc Is Nothing Then Exit Sub
 
     CollectEmailSubjects wsSrc, subjects, subjectCount, warningText
     If subjectCount = 0 Then
@@ -105,6 +82,7 @@ Public Sub DraftResultsSummaryEmail()
     candidateCount = CountCandidates(wsSrc)
     CollectEmailStudents wsSrc, subjects, subjectCount, students, studentCount
     GetSourceLabels wsSrc, assessmentName, yearText, levelText
+    assessmentName = PreferredExamLabel(CanonicalExamKey(assessmentName), assessmentName)
 
     htmlBody = BuildResultsEmailHtml(wsSrc.Name, assessmentName, yearText, levelText, _
                                      candidateCount, subjects, subjectCount, _
@@ -121,26 +99,279 @@ End Sub
 ' SOURCE VALIDATION AND LABELS
 '------------------------------------------------------------
 Private Function IsEligibleEmailSourceSheet(ByVal ws As Object) As Boolean
-    Dim lastCol As Long, c As Long
+    Dim lastCol As Long, lastRow As Long, classCol As Long, c As Long
     Dim hasName As Boolean, hasClass As Boolean, hasGrade As Boolean
+    Dim hasSecGrade As Boolean
     Dim h As String
 
     If ws Is Nothing Then Exit Function
     If TypeName(ws) <> "Worksheet" Then Exit Function
+    If IsIpEmailSheetName(ws.Name) Then Exit Function
 
     If FindEmailHeader(ws, "Name") > 0 Then hasName = True
-    If FindEmailHeader(ws, "Class") > 0 Then hasClass = True
+    classCol = FindEmailHeader(ws, "Class")
+    If classCol > 0 Then
+        hasClass = True
+        lastRow = ws.Cells(ws.Rows.count, classCol).End(xlUp).Row
+    End If
 
     lastCol = ws.Cells(1, ws.Columns.count).End(xlToLeft).Column
     For c = 1 To lastCol
         h = UCase$(Trim$(CStr(ws.Cells(1, c).value)))
         If Right$(h, 7) = "(GRADE)" Then
             hasGrade = True
-            Exit For
+            If DetectEmailScheme(ws, c, lastRow, h) <> "" Then hasSecGrade = True
         End If
     Next c
 
-    IsEligibleEmailSourceSheet = hasName And hasClass And hasGrade
+    IsEligibleEmailSourceSheet = hasName And hasClass And hasGrade And hasSecGrade
+End Function
+
+Private Function IsIpEmailSheetName(ByVal sheetName As String) As Boolean
+    Dim upperName As String, levelNo As Variant
+    upperName = UCase$(Trim$(sheetName))
+
+    For Each levelNo In Array("1", "2", "3", "4")
+        If Left$(upperName, 2) = "Y" & CStr(levelNo) Then
+            IsIpEmailSheetName = True
+            Exit Function
+        End If
+        If InStr(1, upperName, "_Y" & CStr(levelNo) & "_", vbBinaryCompare) > 0 Then
+            IsIpEmailSheetName = True
+            Exit Function
+        End If
+    Next levelNo
+End Function
+
+'------------------------------------------------------------
+' FRIENDLY ASSESSMENT / COHORT SELECTOR
+'------------------------------------------------------------
+Private Function SelectEmailSourceByAssessment() As Worksheet
+    Dim ws As Worksheet, activeWs As Worksheet, candidateWs As Worksheet
+    Dim examKeys() As String, examLabels() As String, examOrders() As Long
+    Dim examCount As Long, i As Long, j As Long, existingIndex As Long
+    Dim assessmentName As String, yearText As String, levelText As String
+    Dim examKey As String, answerText As String, promptText As String
+    Dim selectedExamIndex As Long, defaultExam As String
+    Dim matchingSheets As Collection
+    Dim tmpText As String, tmpOrder As Long
+    Dim defaultCohort As String, selectedCohort As Long
+    Dim matchedLevel As String, matchedYear As String, matchedAssessment As String
+    Dim levelAnswer As String, matchCount As Long, oneMatch As Long
+
+    On Error Resume Next
+    If TypeName(ActiveSheet) = "Worksheet" Then Set activeWs = ActiveSheet
+    On Error GoTo 0
+
+    ' Find the distinct assessments that really exist in staging sheets.
+    For Each ws In ThisWorkbook.Worksheets
+        If IsEligibleEmailSourceSheet(ws) Then
+            assessmentName = "": yearText = "": levelText = ""
+            GetSourceLabels ws, assessmentName, yearText, levelText
+            examKey = CanonicalExamKey(assessmentName)
+
+            If examKey <> "" Then
+                existingIndex = FindExamKeyIndex(examKeys, examCount, examKey)
+                If existingIndex = 0 Then
+                    examCount = examCount + 1
+                    ReDim Preserve examKeys(1 To examCount)
+                    ReDim Preserve examLabels(1 To examCount)
+                    ReDim Preserve examOrders(1 To examCount)
+                    examKeys(examCount) = examKey
+                    examLabels(examCount) = PreferredExamLabel(examKey, assessmentName)
+                    examOrders(examCount) = PreferredExamOrder(examKey)
+                End If
+
+                If Not activeWs Is Nothing Then
+                    If ws.Name = activeWs.Name Then defaultExam = examKey
+                End If
+            End If
+        End If
+    Next ws
+
+    If examCount = 0 Then
+        MsgBox "No available SEC assessments were found." & vbCrLf & _
+               "Import results with grade columns before drafting the email.", _
+               vbExclamation, "Draft Results Summary Email"
+        Exit Function
+    End If
+
+    ' Preferred management order: WA1, WA2, First Combined, WA3,
+    ' Prelim, 2nd Combined, EYE; then any other assessment names.
+    For i = 1 To examCount - 1
+        For j = i + 1 To examCount
+            If examOrders(j) < examOrders(i) Or _
+               (examOrders(j) = examOrders(i) And _
+                StrComp(examLabels(j), examLabels(i), vbTextCompare) < 0) Then
+                tmpText = examKeys(i): examKeys(i) = examKeys(j): examKeys(j) = tmpText
+                tmpText = examLabels(i): examLabels(i) = examLabels(j): examLabels(j) = tmpText
+                tmpOrder = examOrders(i): examOrders(i) = examOrders(j): examOrders(j) = tmpOrder
+            End If
+        Next j
+    Next i
+
+    promptText = "Available assessments:" & vbCrLf & vbCrLf
+    For i = 1 To examCount
+        promptText = promptText & i & ". " & examLabels(i) & vbCrLf
+        If examKeys(i) = defaultExam Then defaultExam = CStr(i)
+    Next i
+    promptText = promptText & vbCrLf & "Type the number or assessment name (for example, WA3):"
+
+    answerText = Trim$(InputBox(promptText, "Select Results Assessment", defaultExam))
+    If answerText = "" Then Exit Function
+
+    If IsNumeric(answerText) Then
+        If CDbl(answerText) = Fix(CDbl(answerText)) Then selectedExamIndex = CLng(answerText)
+        If selectedExamIndex < 1 Or selectedExamIndex > examCount Then selectedExamIndex = 0
+    Else
+        examKey = CanonicalExamKey(answerText)
+        selectedExamIndex = FindExamKeyIndex(examKeys, examCount, examKey)
+    End If
+
+    If selectedExamIndex = 0 Then
+        MsgBox "'" & answerText & "' is not one of the available assessments shown.", _
+               vbExclamation, "Assessment Not Found"
+        Exit Function
+    End If
+
+    Set matchingSheets = New Collection
+    For Each ws In ThisWorkbook.Worksheets
+        If IsEligibleEmailSourceSheet(ws) Then
+            assessmentName = "": yearText = "": levelText = ""
+            GetSourceLabels ws, assessmentName, yearText, levelText
+            If CanonicalExamKey(assessmentName) = examKeys(selectedExamIndex) Then
+                matchingSheets.Add ws
+            End If
+        End If
+    Next ws
+
+    If matchingSheets.count = 1 Then
+        Set SelectEmailSourceByAssessment = matchingSheets(1)
+        Exit Function
+    End If
+
+    ' More than one level/year has this assessment. Ask using friendly
+    ' cohort labels so the user never has to know a staging-sheet name.
+    promptText = examLabels(selectedExamIndex) & " is available for:" & vbCrLf & vbCrLf
+    For i = 1 To matchingSheets.count
+        Set candidateWs = matchingSheets(i)
+        matchedAssessment = "": matchedYear = "": matchedLevel = ""
+        GetSourceLabels candidateWs, matchedAssessment, matchedYear, matchedLevel
+        promptText = promptText & i & ". " & matchedLevel
+        If matchedYear <> "" Then promptText = promptText & " - " & matchedYear
+        promptText = promptText & " (" & CountCandidates(candidateWs) & " candidates)" & vbCrLf
+        If Not activeWs Is Nothing Then
+            If candidateWs.Name = activeWs.Name Then defaultCohort = CStr(i)
+        End If
+    Next i
+    promptText = promptText & vbCrLf & "Type the number or level (for example, S4):"
+
+    levelAnswer = Trim$(InputBox(promptText, "Select Results Cohort", defaultCohort))
+    If levelAnswer = "" Then Exit Function
+
+    If IsNumeric(levelAnswer) Then
+        If CDbl(levelAnswer) = Fix(CDbl(levelAnswer)) Then selectedCohort = CLng(levelAnswer)
+        If selectedCohort >= 1 And selectedCohort <= matchingSheets.count Then
+            Set SelectEmailSourceByAssessment = matchingSheets(selectedCohort)
+            Exit Function
+        End If
+    Else
+        For i = 1 To matchingSheets.count
+            Set candidateWs = matchingSheets(i)
+            matchedAssessment = "": matchedYear = "": matchedLevel = ""
+            GetSourceLabels candidateWs, matchedAssessment, matchedYear, matchedLevel
+            If StrComp(Trim$(levelAnswer), matchedLevel, vbTextCompare) = 0 Then
+                matchCount = matchCount + 1
+                oneMatch = i
+            End If
+        Next i
+        If matchCount = 1 Then
+            Set SelectEmailSourceByAssessment = matchingSheets(oneMatch)
+            Exit Function
+        End If
+    End If
+
+    MsgBox "The cohort selection was not recognised. No draft was created.", _
+           vbExclamation, "Cohort Not Found"
+End Function
+
+Private Function FindExamKeyIndex(ByRef examKeys() As String, _
+                                  ByVal examCount As Long, ByVal examKey As String) As Long
+    Dim i As Long
+    For i = 1 To examCount
+        If StrComp(examKeys(i), examKey, vbTextCompare) = 0 Then
+            FindExamKeyIndex = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function CanonicalExamKey(ByVal assessmentName As String) As String
+    Dim s As String, i As Long, ch As String, compact As String
+    s = UCase$(Trim$(assessmentName))
+
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If (ch >= "A" And ch <= "Z") Or (ch >= "0" And ch <= "9") Then compact = compact & ch
+    Next i
+
+    If InStr(1, compact, "WA1", vbBinaryCompare) > 0 Or _
+       InStr(1, compact, "TERM1WA", vbBinaryCompare) > 0 Or _
+       InStr(1, compact, "TERM1NWA", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "WA1"
+    ElseIf InStr(1, compact, "WA2", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM2WA", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM2NWA", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "WA2"
+    ElseIf InStr(1, compact, "FIRSTCOMBINED", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "1STCOMBINED", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "COMBINED1", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "SEMESTER1", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM2COMBINED", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "FIRSTCOMBINED"
+    ElseIf InStr(1, compact, "WA3", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM3WA", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM3NWA", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "WA3"
+    ElseIf InStr(1, compact, "PRELIM", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "PRELIM"
+    ElseIf InStr(1, compact, "SECONDCOMBINED", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "2NDCOMBINED", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "COMBINED2", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "SEMESTER2", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM3COMBINED", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "TERM4COMBINED", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "SECONDCOMBINED"
+    ElseIf InStr(1, compact, "EYE", vbBinaryCompare) > 0 Or _
+           InStr(1, compact, "ENDOFYEAR", vbBinaryCompare) > 0 Then
+        CanonicalExamKey = "EYE"
+    Else
+        CanonicalExamKey = compact
+    End If
+End Function
+
+Private Function PreferredExamLabel(ByVal examKey As String, _
+                                    ByVal originalLabel As String) As String
+    Select Case examKey
+        Case "WA1", "WA2", "WA3", "EYE": PreferredExamLabel = examKey
+        Case "FIRSTCOMBINED": PreferredExamLabel = "First Combined"
+        Case "PRELIM": PreferredExamLabel = "PRELIM"
+        Case "SECONDCOMBINED": PreferredExamLabel = "2nd Combined"
+        Case Else: PreferredExamLabel = originalLabel
+    End Select
+End Function
+
+Private Function PreferredExamOrder(ByVal examKey As String) As Long
+    Select Case examKey
+        Case "WA1": PreferredExamOrder = 1
+        Case "WA2": PreferredExamOrder = 2
+        Case "FIRSTCOMBINED": PreferredExamOrder = 3
+        Case "WA3": PreferredExamOrder = 4
+        Case "PRELIM": PreferredExamOrder = 5
+        Case "SECONDCOMBINED": PreferredExamOrder = 6
+        Case "EYE": PreferredExamOrder = 7
+        Case Else: PreferredExamOrder = 100
+    End Select
 End Function
 
 Private Sub GetSourceLabels(ByVal ws As Worksheet, _
@@ -451,7 +682,7 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
     Dim html As String
     Dim schoolName As String, preparedBy As String, embargoText As String
     Dim totalEntries As Long, totalPass As Long
-    Dim perfectCount As Long, belowCount As Long, warningCount As Long
+    Dim perfectCount As Long, belowCount As Long
     Dim i As Long
 
     schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
@@ -464,8 +695,6 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
         If subjects(i).N > 0 And subjects(i).PassCount = subjects(i).N Then perfectCount = perfectCount + 1
         If subjects(i).N > 0 And EmailPct(subjects(i).PassCount, subjects(i).N) < 90# Then belowCount = belowCount + 1
     Next i
-    warningCount = CountWarnings(warningText)
-
     AppendHtml html, "<html><body style='margin:0;padding:0;background:#f5f9fd;font-family:Arial,Helvetica,sans-serif;color:#23384d;'>"
     AppendHtml html, "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' border='0' style='background:#f5f9fd;'><tr><td align='center' style='padding:14px;'>"
     AppendHtml html, "<table role='presentation' width='780' cellspacing='0' cellpadding='0' border='0' style='width:100%;max-width:780px;'>"
@@ -478,7 +707,7 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
                      "<div style='font-size:12px;color:#60788e;margin-top:7px;'>Results Summary based on imported Cockpit data.</div></td></tr>"
     AppendHtml html, SpacerRow(10)
 
-    AppendHtml html, "<tr><td>" & BuildKpiGrid(candidateCount, subjectCount, totalEntries, totalPass, perfectCount, belowCount, warningCount) & "</td></tr>"
+    AppendHtml html, "<tr><td>" & BuildKpiGrid(candidateCount, subjectCount, totalEntries, totalPass, perfectCount, belowCount) & "</td></tr>"
     AppendHtml html, SpacerRow(10)
     AppendHtml html, CardStart("Subject Highlights", "")
     AppendHtml html, "<div style='font-size:13px;font-weight:bold;color:#548235;margin:2px 0 7px;'>100% passes</div>"
@@ -490,13 +719,6 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
     AppendSchemePerformance html, subjects, subjectCount, "G3"
     AppendSchemePerformance html, subjects, subjectCount, "G2"
     AppendSchemePerformance html, subjects, subjectCount, "G1"
-
-    If warningText <> "" Then
-        AppendHtml html, SpacerRow(10)
-        AppendHtml html, "<tr><td style='background:#fff8db;border:1px solid #d6b656;padding:14px 16px;'>" & _
-                         "<div style='font-size:15px;font-weight:bold;color:#7f6000;margin-bottom:6px;'>Data checks</div>" & _
-                         BuildWarningHtml(warningText) & "</td></tr>"
-    End If
 
     AppendHtml html, SpacerRow(10)
     AppendHtml html, CardStart("Top Students", "Ranked by distinctions, then passes and student name. Current imported release only.")
@@ -519,8 +741,7 @@ End Function
 
 Private Function BuildKpiGrid(ByVal candidates As Long, ByVal subjectCount As Long, _
                               ByVal totalEntries As Long, ByVal totalPass As Long, _
-                              ByVal perfectCount As Long, ByVal belowCount As Long, _
-                              ByVal warningCount As Long) As String
+                              ByVal perfectCount As Long, ByVal belowCount As Long) As String
     Dim overallPass As String
     overallPass = IIf(totalEntries > 0, Format$(EmailPct(totalPass, totalEntries), "0.0") & "%", "-")
 
@@ -531,7 +752,7 @@ Private Function BuildKpiGrid(ByVal candidates As Long, ByVal subjectCount As Lo
         "<tr><td colspan='5' height='8' style='height:8px;'></td></tr>" & _
         "<tr>" & KpiCell("100% pass", CStr(perfectCount), "#e2f0d9", "#548235", False) & _
         KpiGap() & KpiCell("Below 90%", CStr(belowCount), "#fff0f0", "#c00000", False) & _
-        KpiGap() & KpiCell("Data checks", CStr(warningCount), "#f5f5f5", "#1f4e79", False) & "</tr></table>"
+        KpiGap() & KpiCell("Valid subject results", CStr(totalEntries), "#f5f5f5", "#1f4e79", False) & "</tr></table>"
 End Function
 
 Private Function KpiCell(ByVal labelText As String, ByVal valueText As String, _
