@@ -1525,30 +1525,60 @@ End Function
 
 Private Function ParseAssessmentFromLine(ByVal line As String) As String
     Dim p As Long, afterColon As String
+    Dim u As String, compact As String
+
     p = InStr(1, line, ":")
     If p > 0 Then
         afterColon = CleanText(Mid$(line, p + 1))
-        If Len(afterColon) > 0 Then
-            ParseAssessmentFromLine = afterColon
-            Exit Function
-        End If
     End If
-    
-    Dim u As String
-    u = UCase$(CleanText(line))
+
+    If Len(afterColon) > 0 Then
+        u = UCase$(afterColon)
+    Else
+        u = UCase$(CleanText(line))
+    End If
+    compact = Replace(u, " ", "")
+    compact = Replace(compact, "-", "")
 
     If InStr(1, u, "WA1", vbBinaryCompare) > 0 Then
         ParseAssessmentFromLine = "WA1"
     ElseIf InStr(1, u, "WA2", vbBinaryCompare) > 0 Then
         ParseAssessmentFromLine = "WA2"
+    ElseIf InStr(1, u, "FIRST COMBINED", vbBinaryCompare) > 0 _
+        Or InStr(1, u, "1ST COMBINED", vbBinaryCompare) > 0 _
+        Or InStr(1, u, "COMBINED 1", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "SEMESTER1", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM2COMBINED", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "First Combined"
     ElseIf InStr(1, u, "WA3", vbBinaryCompare) > 0 Then
         ParseAssessmentFromLine = "WA3"
-    ElseIf InStr(1, u, "EYE", vbBinaryCompare) > 0 Then
+    ElseIf InStr(1, u, "PRELIM", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "Prelim"
+    ElseIf InStr(1, u, "SECOND COMBINED", vbBinaryCompare) > 0 _
+        Or InStr(1, u, "2ND COMBINED", vbBinaryCompare) > 0 _
+        Or InStr(1, u, "COMBINED 2", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "SEMESTER2", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM3COMBINED", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM4COMBINED", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "2nd Combined"
+    ElseIf InStr(1, u, "EYE", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "ENDOFYEAREXAM", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "ENDOFYEAR", vbBinaryCompare) > 0 Then
         ParseAssessmentFromLine = "EYE"
     ElseIf InStr(1, u, "MID YEAR", vbBinaryCompare) > 0 Or InStr(1, u, "MID-YEAR", vbBinaryCompare) > 0 Then
         ParseAssessmentFromLine = "Mid Year"
-    ElseIf InStr(1, u, "PRELIM", vbBinaryCompare) > 0 Then
-        ParseAssessmentFromLine = "Prelim"
+    ElseIf InStr(1, compact, "TERM1WA", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM1NWA", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "WA1"
+    ElseIf InStr(1, compact, "TERM2WA", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM2NWA", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "WA2"
+    ElseIf InStr(1, compact, "TERM3WA", vbBinaryCompare) > 0 _
+        Or InStr(1, compact, "TERM3NWA", vbBinaryCompare) > 0 Then
+        ParseAssessmentFromLine = "WA3"
+    ElseIf Len(afterColon) > 0 Then
+        ' Preserve unfamiliar result types instead of discarding them.
+        ParseAssessmentFromLine = afterColon
     End If
 End Function
 
