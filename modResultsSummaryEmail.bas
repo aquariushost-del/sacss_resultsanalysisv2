@@ -44,6 +44,22 @@ Private Type tEmailStudent
     GroupCode As String
     DistCount As Long
     PassCount As Long
+    FailCount As Long
+End Type
+
+Private Type tEmailLevelSummary
+    LevelText As String
+    YearText As String
+    CandidateCount As Long
+    SubjectCount As Long
+    ValidEntries As Long
+    PassEntries As Long
+    PerfectSubjects As Long
+    BelowNinetySubjects As Long
+    NoFailureStudents As Long
+    AtRiskStudents As Long
+    ConcernsHtml As String
+    PositivesHtml As String
 End Type
 
 Private Const SETTINGS_SHEET As String = "Settings"
@@ -52,6 +68,11 @@ Private Const EMAIL_VALUE_COL As String = "R"
 Private Const SUBJECT_MAP_KEY_COL As String = "T"
 Private Const SUBJECT_MAP_VALUE_COL As String = "U"
 Private Const DEFAULT_MIN_N As Long = 10
+
+Private gDraftAllLevels As Boolean
+Private gAllLevelSheets As Collection
+Private gSelectedExamLabel As String
+Private gSelectedYear As String
 
 '------------------------------------------------------------
 ' PUBLIC ENTRY POINT
@@ -71,6 +92,11 @@ Public Sub DraftResultsSummaryEmail()
 
     Set wsSrc = SelectEmailSourceByAssessment()
     If wsSrc Is Nothing Then Exit Sub
+
+    If gDraftAllLevels Then
+        DraftAllLevelsManagementSummary
+        Exit Sub
+    End If
 
     CollectEmailSubjects wsSrc, subjects, subjectCount, warningText
     If subjectCount = 0 Then
@@ -158,6 +184,12 @@ Private Function SelectEmailSourceByAssessment() As Worksheet
     Dim defaultCohort As String, selectedCohort As Long
     Dim matchedLevel As String, matchedYear As String, matchedAssessment As String
     Dim levelAnswer As String, matchCount As Long, oneMatch As Long
+    Dim canOfferAll As Boolean, commonYear As String
+
+    gDraftAllLevels = False
+    Set gAllLevelSheets = Nothing
+    gSelectedExamLabel = ""
+    gSelectedYear = ""
 
     On Error Resume Next
     If TypeName(ActiveSheet) = "Worksheet" Then Set activeWs = ActiveSheet
@@ -245,6 +277,8 @@ Private Function SelectEmailSourceByAssessment() As Worksheet
         End If
     Next ws
 
+    Set matchingSheets = SortEmailSheetsByLevel(matchingSheets)
+
     If matchingSheets.count = 1 Then
         Set SelectEmailSourceByAssessment = matchingSheets(1)
         Exit Function
@@ -253,6 +287,12 @@ Private Function SelectEmailSourceByAssessment() As Worksheet
     ' More than one level/year has this assessment. Ask using friendly
     ' cohort labels so the user never has to know a staging-sheet name.
     promptText = examLabels(selectedExamIndex) & " is available for:" & vbCrLf & vbCrLf
+    canOfferAll = MatchingSheetsShareOneYear(matchingSheets, commonYear)
+    If canOfferAll Then
+        promptText = promptText & "0. ALL LEVELS - Management Summary" & vbCrLf
+    Else
+        promptText = promptText & "ALL LEVELS is unavailable because these results span multiple years." & vbCrLf
+    End If
     For i = 1 To matchingSheets.count
         Set candidateWs = matchingSheets(i)
         matchedAssessment = "": matchedYear = "": matchedLevel = ""
@@ -264,10 +304,21 @@ Private Function SelectEmailSourceByAssessment() As Worksheet
             If candidateWs.Name = activeWs.Name Then defaultCohort = CStr(i)
         End If
     Next i
-    promptText = promptText & vbCrLf & "Type the number or level (for example, S4):"
+    promptText = promptText & vbCrLf & "Type 0 for all levels, or a number/level (for example, S4):"
 
     levelAnswer = Trim$(InputBox(promptText, "Select Results Cohort", defaultCohort))
     If levelAnswer = "" Then Exit Function
+
+    If canOfferAll Then
+        If UCase$(levelAnswer) = "ALL" Or UCase$(levelAnswer) = "ALL LEVELS" Or levelAnswer = "0" Then
+            gDraftAllLevels = True
+            Set gAllLevelSheets = matchingSheets
+            gSelectedExamLabel = examLabels(selectedExamIndex)
+            gSelectedYear = commonYear
+            Set SelectEmailSourceByAssessment = matchingSheets(1)
+            Exit Function
+        End If
+    End If
 
     If IsNumeric(levelAnswer) Then
         If CDbl(levelAnswer) = Fix(CDbl(levelAnswer)) Then selectedCohort = CLng(levelAnswer)
@@ -293,6 +344,59 @@ Private Function SelectEmailSourceByAssessment() As Worksheet
 
     MsgBox "The cohort selection was not recognised. No draft was created.", _
            vbExclamation, "Cohort Not Found"
+End Function
+
+Private Function SortEmailSheetsByLevel(ByVal sourceSheets As Collection) As Collection
+    Dim sortedSheets As New Collection
+    Dim added As Object
+    Dim levelNo As Long, i As Long
+    Dim ws As Worksheet
+    Dim assessmentName As String, yearText As String, levelText As String
+
+    Set added = CreateObject("Scripting.Dictionary")
+    added.CompareMode = vbTextCompare
+
+    For levelNo = 1 To 5
+        For i = 1 To sourceSheets.count
+            Set ws = sourceSheets(i)
+            assessmentName = "": yearText = "": levelText = ""
+            GetSourceLabels ws, assessmentName, yearText, levelText
+            If UCase$(levelText) = "S" & CStr(levelNo) Then
+                sortedSheets.Add ws
+                added(ws.Name) = True
+            End If
+        Next i
+    Next levelNo
+
+    For i = 1 To sourceSheets.count
+        Set ws = sourceSheets(i)
+        If Not added.Exists(ws.Name) Then sortedSheets.Add ws
+    Next i
+
+    Set SortEmailSheetsByLevel = sortedSheets
+End Function
+
+Private Function MatchingSheetsShareOneYear(ByVal matchingSheets As Collection, _
+                                            ByRef commonYear As String) As Boolean
+    Dim i As Long
+    Dim ws As Worksheet
+    Dim assessmentName As String, yearText As String, levelText As String
+
+    commonYear = ""
+    For i = 1 To matchingSheets.count
+        Set ws = matchingSheets(i)
+        assessmentName = "": yearText = "": levelText = ""
+        GetSourceLabels ws, assessmentName, yearText, levelText
+
+        If i = 1 Then
+            commonYear = yearText
+        ElseIf StrComp(commonYear, yearText, vbTextCompare) <> 0 Then
+            MatchingSheetsShareOneYear = False
+            Exit Function
+        End If
+    Next i
+
+    MatchingSheetsShareOneYear = True
 End Function
 
 Private Function FindExamKeyIndex(ByRef examKeys() As String, _
@@ -663,6 +767,7 @@ Private Sub CollectEmailStudents(ByVal ws As Worksheet, _
                             Case "G3": g3Taken = g3Taken + 1
                         End Select
                         If isPass Then students(studentCount).PassCount = students(studentCount).PassCount + 1
+                        If Not isPass Then students(studentCount).FailCount = students(studentCount).FailCount + 1
                         If isDist Then students(studentCount).DistCount = students(studentCount).DistCount + 1
                     End If
                 End If
@@ -748,6 +853,337 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
 
     AppendHtml html, "</table></td></tr></table></body></html>"
     BuildResultsEmailHtml = html
+End Function
+
+'------------------------------------------------------------
+' ALL-LEVELS MANAGEMENT SUMMARY
+'------------------------------------------------------------
+Private Sub DraftAllLevelsManagementSummary()
+    Dim summaries() As tEmailLevelSummary
+    Dim summaryCount As Long
+    Dim htmlBody As String
+
+    If gAllLevelSheets Is Nothing Then Exit Sub
+    If gAllLevelSheets.count = 0 Then Exit Sub
+
+    BuildLevelSummaries gAllLevelSheets, summaries, summaryCount
+    If summaryCount = 0 Then
+        MsgBox "No eligible level summaries could be built for " & gSelectedExamLabel & ".", vbExclamation
+        Exit Sub
+    End If
+
+    SortLevelSummaries summaries, summaryCount
+    htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, gSelectedExamLabel, gSelectedYear)
+    CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels"
+End Sub
+
+Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
+                                ByRef summaries() As tEmailLevelSummary, _
+                                ByRef summaryCount As Long)
+    Dim ws As Worksheet
+    Dim subjects() As tEmailSubject, students() As tEmailStudent
+    Dim subjectCount As Long, studentCount As Long
+    Dim warningText As String
+    Dim assessmentName As String, yearText As String, levelText As String
+    Dim i As Long, threshold As Long
+
+    threshold = GetEmailAtRiskThreshold()
+
+    For i = 1 To sourceSheets.count
+        Set ws = sourceSheets(i)
+        Erase subjects
+        Erase students
+        subjectCount = 0: studentCount = 0: warningText = ""
+        assessmentName = "": yearText = "": levelText = ""
+
+        CollectEmailSubjects ws, subjects, subjectCount, warningText
+        If subjectCount > 0 Then
+            CollectEmailStudents ws, subjects, subjectCount, students, studentCount
+            GetSourceLabels ws, assessmentName, yearText, levelText
+
+            summaryCount = summaryCount + 1
+            ReDim Preserve summaries(1 To summaryCount)
+            With summaries(summaryCount)
+                .LevelText = levelText
+                .YearText = yearText
+                .CandidateCount = CountCandidates(ws)
+                .SubjectCount = subjectCount
+            End With
+
+            AddSubjectMetricsToLevelSummary summaries(summaryCount), subjects, subjectCount
+            AddStudentMetricsToLevelSummary summaries(summaryCount), students, studentCount, threshold
+            summaries(summaryCount).ConcernsHtml = BuildLevelConcernLines(subjects, subjectCount)
+            summaries(summaryCount).PositivesHtml = BuildLevelPositiveLines(subjects, subjectCount)
+        End If
+    Next i
+End Sub
+
+Private Sub AddSubjectMetricsToLevelSummary(ByRef summary As tEmailLevelSummary, _
+                                            ByRef subjects() As tEmailSubject, _
+                                            ByVal subjectCount As Long)
+    Dim i As Long, passPct As Double
+    For i = 1 To subjectCount
+        summary.ValidEntries = summary.ValidEntries + subjects(i).N
+        summary.PassEntries = summary.PassEntries + subjects(i).PassCount
+        If subjects(i).N > 0 Then
+            passPct = EmailPct(subjects(i).PassCount, subjects(i).N)
+            If passPct = 100# Then summary.PerfectSubjects = summary.PerfectSubjects + 1
+            If passPct < 90# Then summary.BelowNinetySubjects = summary.BelowNinetySubjects + 1
+        End If
+    Next i
+End Sub
+
+Private Sub AddStudentMetricsToLevelSummary(ByRef summary As tEmailLevelSummary, _
+                                            ByRef students() As tEmailStudent, _
+                                            ByVal studentCount As Long, _
+                                            ByVal atRiskThreshold As Long)
+    Dim i As Long
+    For i = 1 To studentCount
+        If students(i).GroupCode <> "" Then
+            If students(i).FailCount = 0 Then
+                summary.NoFailureStudents = summary.NoFailureStudents + 1
+            End If
+            If students(i).FailCount >= atRiskThreshold Then
+                summary.AtRiskStudents = summary.AtRiskStudents + 1
+            End If
+        End If
+    Next i
+End Sub
+
+Private Sub SortLevelSummaries(ByRef summaries() As tEmailLevelSummary, ByVal summaryCount As Long)
+    Dim i As Long, j As Long
+
+    For i = 1 To summaryCount - 1
+        For j = i + 1 To summaryCount
+            If LevelSummaryBefore(summaries(j), summaries(i)) Then
+                SwapLevelSummaries summaries(i), summaries(j)
+            End If
+        Next j
+    Next i
+End Sub
+
+Private Sub SwapLevelSummaries(ByRef a As tEmailLevelSummary, _
+                               ByRef b As tEmailLevelSummary)
+    Dim textValue As String
+    Dim longValue As Long
+
+    textValue = a.LevelText: a.LevelText = b.LevelText: b.LevelText = textValue
+    textValue = a.YearText: a.YearText = b.YearText: b.YearText = textValue
+    longValue = a.CandidateCount: a.CandidateCount = b.CandidateCount: b.CandidateCount = longValue
+    longValue = a.SubjectCount: a.SubjectCount = b.SubjectCount: b.SubjectCount = longValue
+    longValue = a.ValidEntries: a.ValidEntries = b.ValidEntries: b.ValidEntries = longValue
+    longValue = a.PassEntries: a.PassEntries = b.PassEntries: b.PassEntries = longValue
+    longValue = a.PerfectSubjects: a.PerfectSubjects = b.PerfectSubjects: b.PerfectSubjects = longValue
+    longValue = a.BelowNinetySubjects: a.BelowNinetySubjects = b.BelowNinetySubjects: b.BelowNinetySubjects = longValue
+    longValue = a.NoFailureStudents: a.NoFailureStudents = b.NoFailureStudents: b.NoFailureStudents = longValue
+    longValue = a.AtRiskStudents: a.AtRiskStudents = b.AtRiskStudents: b.AtRiskStudents = longValue
+    textValue = a.ConcernsHtml: a.ConcernsHtml = b.ConcernsHtml: b.ConcernsHtml = textValue
+    textValue = a.PositivesHtml: a.PositivesHtml = b.PositivesHtml: b.PositivesHtml = textValue
+End Sub
+
+Private Function LevelSummaryBefore(ByRef a As tEmailLevelSummary, _
+                                    ByRef b As tEmailLevelSummary) As Boolean
+    Dim aLevel As String, bLevel As String
+    aLevel = FirstLevelDigit(a.LevelText)
+    bLevel = FirstLevelDigit(b.LevelText)
+    If aLevel <> bLevel Then
+        LevelSummaryBefore = (aLevel < bLevel)
+    Else
+        LevelSummaryBefore = (StrComp(a.LevelText, b.LevelText, vbTextCompare) < 0)
+    End If
+End Function
+
+Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary, _
+                                         ByVal summaryCount As Long, _
+                                         ByVal assessmentName As String, _
+                                         ByVal yearText As String) As String
+    Dim html As String
+    Dim schoolName As String, preparedBy As String, embargoText As String
+    Dim totalCandidates As Long, totalEntries As Long, totalPass As Long
+    Dim totalAtRisk As Long, totalPerfect As Long, totalBelow As Long
+    Dim i As Long, overallPass As String
+
+    schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
+    preparedBy = GetEmailSetting("PreparedBy", Application.UserName)
+    embargoText = GetEmailSetting("EmbargoText", "For Internal Use only. Embargoed until authorised for release.")
+
+    For i = 1 To summaryCount
+        totalCandidates = totalCandidates + summaries(i).CandidateCount
+        totalEntries = totalEntries + summaries(i).ValidEntries
+        totalPass = totalPass + summaries(i).PassEntries
+        totalAtRisk = totalAtRisk + summaries(i).AtRiskStudents
+        totalPerfect = totalPerfect + summaries(i).PerfectSubjects
+        totalBelow = totalBelow + summaries(i).BelowNinetySubjects
+    Next i
+    If totalEntries > 0 Then overallPass = Format$(EmailPct(totalPass, totalEntries), "0.0") & "%" Else overallPass = "-"
+
+    AppendHtml html, "<html><body style='margin:0;padding:0;background:#f5f9fd;font-family:Arial,Helvetica,sans-serif;color:#23384d;'>"
+    AppendHtml html, "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' border='0' style='background:#f5f9fd;'><tr><td align='center' style='padding:14px;'>"
+    AppendHtml html, "<table role='presentation' width='780' cellspacing='0' cellpadding='0' border='0' style='width:100%;max-width:780px;'>"
+    AppendHtml html, "<tr><td style='background:#b71c1c;color:#ffffff;font-weight:bold;text-align:center;padding:10px 14px;border:1px solid #9f1818;'>" & HtmlEncode(embargoText) & "</td></tr>"
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, "<tr><td style='background:#eef5fb;border:1px solid #d7e4ef;padding:18px 20px;'>" & _
+                     "<div style='font-size:24px;line-height:29px;font-weight:bold;color:#1f4e79;'>" & HtmlEncode(assessmentName & IIf(yearText <> "", " " & yearText, "") & " - All Levels") & "</div>" & _
+                     "<div style='font-size:14px;color:#385a78;margin-top:5px;'>" & HtmlEncode(schoolName) & "</div>" & _
+                     "<div style='font-size:12px;color:#60788e;margin-top:7px;'>Management highlights based on imported Cockpit data.</div></td></tr>"
+    AppendHtml html, SpacerRow(10)
+
+    AppendHtml html, "<tr><td><table role='presentation' width='100%' cellspacing='0' cellpadding='0' border='0'>" & _
+                     "<tr>" & KpiCell("Candidates", CStr(totalCandidates), "#eef5fb", "#1f4e79", False) & KpiGap() & _
+                     KpiCell("Levels", CStr(summaryCount), "#f5f5f5", "#1f4e79", False) & KpiGap() & _
+                     KpiCell("Subject-entry pass", overallPass, "#e2f0d9", "#548235", False) & "</tr>" & _
+                     "<tr><td colspan='5' height='8' style='height:8px;'></td></tr>" & _
+                     "<tr>" & KpiCell("At-risk students", CStr(totalAtRisk), "#fff0f0", "#c00000", False) & KpiGap() & _
+                     KpiCell("100% pass subjects", CStr(totalPerfect), "#e2f0d9", "#548235", False) & KpiGap() & _
+                     KpiCell("Subjects below 90%", CStr(totalBelow), "#fff0f0", "#c00000", False) & "</tr></table></td></tr>"
+
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, CardStart("Executive overview", "At-risk uses the failed-subject threshold in Settings!L7. Subject-entry pass is calculated across all valid subject results.")
+    AppendHtml html, BuildExecutiveOverviewTable(summaries, summaryCount)
+    AppendHtml html, CardEnd()
+
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, CardStart("Key concerns by level", "Up to five subjects below 90% pass are shown for each level, with the lowest pass rate first.")
+    For i = 1 To summaryCount
+        AppendHtml html, "<div style='font-size:13px;font-weight:bold;color:#1f4e79;margin:" & IIf(i = 1, "2", "13") & "px 0 5px;'>" & HtmlEncode(summaries(i).LevelText) & "</div>"
+        If summaries(i).ConcernsHtml <> "" Then
+            AppendHtml html, summaries(i).ConcernsHtml
+        Else
+            AppendHtml html, "<div style='font-size:11px;color:#548235;'>No subjects below 90% pass.</div>"
+        End If
+    Next i
+    AppendHtml html, CardEnd()
+
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, CardStart("Positive highlights", "Up to three subjects with the strongest distinction rates are shown for each level.")
+    For i = 1 To summaryCount
+        AppendHtml html, "<div style='font-size:13px;font-weight:bold;color:#1f4e79;margin:" & IIf(i = 1, "2", "13") & "px 0 5px;'>" & HtmlEncode(summaries(i).LevelText) & "</div>"
+        AppendHtml html, summaries(i).PositivesHtml
+    Next i
+    AppendHtml html, CardEnd()
+
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, "<tr><td style='background:#ffffff;border:1px solid #d7e4ef;padding:14px 16px;font-size:11px;line-height:16px;color:#60788e;'>" & _
+                     "<div><b>Prepared by:</b> " & HtmlEncode(preparedBy) & "</div>" & _
+                     "<div><b>Generated:</b> " & Format$(Now, "dd mmm yyyy, hh:mm AM/PM") & "</div>" & _
+                     "<div style='margin-top:7px;'>This email contains management highlights only. Detailed subject and student results are provided in the attached workbook. Subject-entry pass rate is not the percentage of students passing every subject.</div>" & _
+                     "</td></tr>"
+
+    AppendHtml html, "</table></td></tr></table></body></html>"
+    BuildAllLevelsEmailHtml = html
+End Function
+
+Private Function BuildExecutiveOverviewTable(ByRef summaries() As tEmailLevelSummary, _
+                                             ByVal summaryCount As Long) As String
+    Dim html As String, i As Long, passText As String
+    html = TableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & HeaderTd("Candidates") & _
+           HeaderTd("Subject pass") & HeaderTd("No failures") & HeaderTd("At risk") & _
+           HeaderTd("100% subjects") & HeaderTd("Below 90%") & "</tr>"
+
+    For i = 1 To summaryCount
+        If summaries(i).ValidEntries > 0 Then
+            passText = Format$(EmailPct(summaries(i).PassEntries, summaries(i).ValidEntries), "0.0") & "%"
+        Else
+            passText = "-"
+        End If
+        html = html & "<tr>" & TextTd(summaries(i).LevelText, "#1f4e79") & _
+               NumTd(CStr(summaries(i).CandidateCount), "#23384d", "#ffffff") & _
+               NumTd(passText, "#385a78", "#f5f5f5") & _
+               NumTd(CStr(summaries(i).NoFailureStudents), "#548235", "#edf6e8") & _
+               NumTd(CStr(summaries(i).AtRiskStudents), IIf(summaries(i).AtRiskStudents > 0, "#c00000", "#60788e"), IIf(summaries(i).AtRiskStudents > 0, "#fff0f0", "#ffffff")) & _
+               NumTd(CStr(summaries(i).PerfectSubjects), "#548235", "#edf6e8") & _
+               NumTd(CStr(summaries(i).BelowNinetySubjects), IIf(summaries(i).BelowNinetySubjects > 0, "#c00000", "#60788e"), IIf(summaries(i).BelowNinetySubjects > 0, "#fff0f0", "#ffffff")) & "</tr>"
+    Next i
+
+    BuildExecutiveOverviewTable = html & "</table>"
+End Function
+
+Private Function BuildLevelConcernLines(ByRef subjects() As tEmailSubject, _
+                                        ByVal subjectCount As Long) As String
+    Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long, shown As Long
+    Dim html As String, passPct As Double
+
+    For i = 1 To subjectCount
+        If subjects(i).N > 0 Then
+            If EmailPct(subjects(i).PassCount, subjects(i).N) < 90# Then
+                n = n + 1
+                ReDim Preserve idx(1 To n)
+                idx(n) = i
+            End If
+        End If
+    Next i
+
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If ConcernSubjectBefore(subjects(idx(j)), subjects(idx(i))) Then
+                tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+            End If
+        Next j
+    Next i
+
+    shown = n
+    If shown > 5 Then shown = 5
+    For i = 1 To shown
+        j = idx(i)
+        passPct = EmailPct(subjects(j).PassCount, subjects(j).N)
+        html = html & "<div style='font-size:11px;line-height:16px;color:#385a78;'>&bull; " & _
+               HtmlEncode(subjects(j).DisplayName & " (" & subjects(j).Scheme & ")") & _
+               " - <span style='color:#c00000;font-weight:bold;'>" & Format$(passPct, "0.0") & "% pass</span>, N=" & subjects(j).N & "</div>"
+    Next i
+    If n > shown Then html = html & "<div style='font-size:10px;color:#60788e;margin-top:3px;'>" & (n - shown) & " additional subject(s) below 90% are in the attached workbook.</div>"
+    BuildLevelConcernLines = html
+End Function
+
+Private Function ConcernSubjectBefore(ByRef a As tEmailSubject, _
+                                      ByRef b As tEmailSubject) As Boolean
+    Dim ap As Double, bp As Double
+    ap = EmailPct(a.PassCount, a.N): bp = EmailPct(b.PassCount, b.N)
+    If ap <> bp Then ConcernSubjectBefore = (ap < bp): Exit Function
+    ConcernSubjectBefore = (StrComp(a.DisplayName, b.DisplayName, vbTextCompare) < 0)
+End Function
+
+Private Function BuildLevelPositiveLines(ByRef subjects() As tEmailSubject, _
+                                         ByVal subjectCount As Long) As String
+    Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long, shown As Long
+    Dim html As String, distPct As Double, perfectCount As Long
+
+    For i = 1 To subjectCount
+        If subjects(i).N > 0 Then
+            n = n + 1
+            ReDim Preserve idx(1 To n)
+            idx(n) = i
+            If subjects(i).PassCount = subjects(i).N Then perfectCount = perfectCount + 1
+        End If
+    Next i
+
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If PositiveSubjectBefore(subjects(idx(j)), subjects(idx(i))) Then
+                tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+            End If
+        Next j
+    Next i
+
+    html = "<div style='font-size:11px;line-height:16px;color:#548235;'>" & perfectCount & " subject(s) achieved 100% pass.</div>"
+    shown = n
+    If shown > 3 Then shown = 3
+    For i = 1 To shown
+        j = idx(i)
+        distPct = EmailPct(subjects(j).DistCount, subjects(j).N)
+        html = html & "<div style='font-size:11px;line-height:16px;color:#385a78;'>&bull; " & _
+               HtmlEncode(subjects(j).DisplayName & " (" & subjects(j).Scheme & ")") & _
+               " - <span style='color:#548235;font-weight:bold;'>" & Format$(distPct, "0.0") & "% distinction</span>, N=" & subjects(j).N & "</div>"
+    Next i
+    BuildLevelPositiveLines = html
+End Function
+
+Private Function PositiveSubjectBefore(ByRef a As tEmailSubject, _
+                                       ByRef b As tEmailSubject) As Boolean
+    Dim ap As Double, bp As Double
+    ap = EmailPct(a.DistCount, a.N): bp = EmailPct(b.DistCount, b.N)
+    If ap <> bp Then PositiveSubjectBefore = (ap > bp): Exit Function
+    If a.N <> b.N Then PositiveSubjectBefore = (a.N > b.N): Exit Function
+    PositiveSubjectBefore = (StrComp(a.DisplayName, b.DisplayName, vbTextCompare) < 0)
 End Function
 
 Private Function BuildKpiGrid(ByVal candidates As Long, ByVal subjectCount As Long, _
@@ -1172,6 +1608,22 @@ Private Function GetEmailMinN() As Long
         If GetEmailMinN < 1 Then GetEmailMinN = DEFAULT_MIN_N
     Else
         GetEmailMinN = DEFAULT_MIN_N
+    End If
+End Function
+
+Private Function GetEmailAtRiskThreshold() As Long
+    Dim ws As Worksheet, valueData As Variant
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(SETTINGS_SHEET)
+    On Error GoTo 0
+
+    If ws Is Nothing Then GetEmailAtRiskThreshold = 3: Exit Function
+    valueData = ws.Range("L7").value
+    If IsNumeric(valueData) Then
+        GetEmailAtRiskThreshold = CLng(valueData)
+        If GetEmailAtRiskThreshold < 1 Then GetEmailAtRiskThreshold = 3
+    Else
+        GetEmailAtRiskThreshold = 3
     End If
 End Function
 
