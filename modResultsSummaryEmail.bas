@@ -52,6 +52,7 @@ Private Type tEmailStudent
     DistCount As Long
     PassCount As Long
     FailCount As Long
+    CountedSubjectCount As Long
     G3TakenCount As Long
     G3FailCount As Long
     G3DistCount As Long
@@ -627,8 +628,12 @@ Private Sub CollectEmailSubjects(ByVal ws As Worksheet, _
                     gradeText = UCase$(Trim$(CStr(ws.Cells(r, c).value)))
                     If gradeText <> "" Then
                         If gradeText = "AB" Then
-                            subjects(subjectCount).AbCount = subjects(subjectCount).AbCount + 1
-                        ElseIf gradeText <> "VR" And gradeText <> "-" Then
+                            With subjects(subjectCount)
+                                .AbCount = .AbCount + 1
+                                .N = .N + 1
+                                .FailCount = .FailCount + 1
+                            End With
+                        ElseIf gradeText <> "VR" And gradeText <> "MC" And gradeText <> "-" Then
                             EvaluateEmailGrade scheme, gradeText, isValid, isPass, isDist, pointValue
                             If isValid Then
                                 With subjects(subjectCount)
@@ -655,7 +660,7 @@ Private Sub CollectEmailSubjects(ByVal ws As Worksheet, _
                 End If
                 If subjects(subjectCount).AbCount > 0 Then
                     AppendWarning warningText, subjects(subjectCount).DisplayName & " (" & scheme & _
-                                  ") contains " & subjects(subjectCount).AbCount & " absence value(s), excluded from subject rates."
+                                  ") contains " & subjects(subjectCount).AbCount & " AB value(s), counted as failures."
                 End If
             Else
                 AppendWarning warningText, "Skipped unrecognised grade column: " & headerText & "."
@@ -830,9 +835,18 @@ Private Sub CollectEmailStudents(ByVal ws As Worksheet, _
             g1Dist = 0: g2Dist = 0: g3Dist = 0
             For i = 1 To subjectCount
                 gradeText = UCase$(Trim$(CStr(ws.Cells(r, subjects(i).GradeCol).value)))
-                If gradeText <> "" And gradeText <> "AB" And gradeText <> "VR" And gradeText <> "-" Then
+                If gradeText = "AB" Then
+                    students(studentCount).CountedSubjectCount = students(studentCount).CountedSubjectCount + 1
+                    students(studentCount).FailCount = students(studentCount).FailCount + 1
+                    Select Case subjects(i).Scheme
+                        Case "G1": g1Taken = g1Taken + 1: g1Fail = g1Fail + 1
+                        Case "G2": g2Taken = g2Taken + 1: g2Fail = g2Fail + 1
+                        Case "G3": g3Taken = g3Taken + 1: g3Fail = g3Fail + 1
+                    End Select
+                ElseIf gradeText <> "" And gradeText <> "VR" And gradeText <> "MC" And gradeText <> "-" Then
                     EvaluateEmailGrade subjects(i).Scheme, gradeText, isValid, isPass, isDist, pointValue
                     If isValid Then
+                        students(studentCount).CountedSubjectCount = students(studentCount).CountedSubjectCount + 1
                         Select Case subjects(i).Scheme
                             Case "G1"
                                 g1Taken = g1Taken + 1
@@ -1035,7 +1049,7 @@ Private Sub AddStudentMetricsToLevelSummary(ByRef summary As tEmailLevelSummary,
                                             ByVal studentCount As Long)
     Dim i As Long
     For i = 1 To studentCount
-        If students(i).GroupCode <> "" Then
+        If students(i).CountedSubjectCount > 0 Then
             summary.ValidStudentCount = summary.ValidStudentCount + 1
             Select Case students(i).FailCount
                 Case 0: summary.PassAllStudentCount = summary.PassAllStudentCount + 1
