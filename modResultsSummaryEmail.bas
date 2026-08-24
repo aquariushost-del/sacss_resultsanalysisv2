@@ -995,8 +995,8 @@ Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
                                 ByRef subjectResults() As tEmailSubjectResult, _
                                 ByRef subjectResultCount As Long)
     Dim ws As Worksheet
-    Dim subjects() As tEmailSubject, students() As tEmailStudent
-    Dim subjectCount As Long, studentCount As Long
+    Dim subjects() As tEmailSubject
+    Dim subjectCount As Long
     Dim warningText As String
     Dim assessmentName As String, yearText As String, levelText As String
     Dim i As Long
@@ -1004,13 +1004,11 @@ Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
     For i = 1 To sourceSheets.count
         Set ws = sourceSheets(i)
         Erase subjects
-        Erase students
-        subjectCount = 0: studentCount = 0: warningText = ""
+        subjectCount = 0: warningText = ""
         assessmentName = "": yearText = "": levelText = ""
 
         CollectEmailSubjects ws, subjects, subjectCount, warningText
         If subjectCount > 0 Then
-            CollectEmailStudents ws, subjects, subjectCount, students, studentCount
             GetSourceLabels ws, assessmentName, yearText, levelText
 
             summaryCount = summaryCount + 1
@@ -1023,11 +1021,111 @@ Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
             End With
 
             AddSubjectMetricsToLevelSummary summaries(summaryCount), subjects, subjectCount
-            AddStudentMetricsToLevelSummary summaries(summaryCount), students, studentCount
+            AddStudentMetricsFromAtRiskSheet summaries(summaryCount), levelText, assessmentName, yearText
             AddEmailSubjectResults subjectResults, subjectResultCount, levelText, subjects, subjectCount
         End If
     Next i
 End Sub
+
+Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary, _
+                                             ByVal levelText As String, _
+                                             ByVal assessmentName As String, _
+                                             ByVal yearText As String)
+    Dim ws As Worksheet
+    Dim expectedSheetName As String
+    Dim classCol As Long, regCol As Long, nameCol As Long
+    Dim attemptedCol As Long, passedCol As Long, failedCol As Long
+    Dim lastRow As Long, r As Long
+    Dim attemptedCount As Long, passedCount As Long, failedCount As Long
+    Dim classText As String, regText As String, nameText As String, keyText As String
+    Dim seen As Object
+
+    expectedSheetName = BuildManagementAtRiskSheetName(levelText, assessmentName, yearText)
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(expectedSheetName)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Err.Raise vbObjectError + 2101, "AddStudentMetricsFromAtRiskSheet", _
+                  "Missing '" & expectedSheetName & "'. Run BuildSec_AtRiskSummary before drafting the management email."
+    End If
+
+    classCol = FindEmailHeaderAtRow(ws, 4, "Class")
+    regCol = FindEmailHeaderAtRow(ws, 4, "RegNo")
+    nameCol = FindEmailHeaderAtRow(ws, 4, "Name")
+    attemptedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Attempted")
+    passedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Passed")
+    failedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Failed")
+    If classCol = 0 Or nameCol = 0 Or attemptedCol = 0 Or passedCol = 0 Or failedCol = 0 Then
+        Err.Raise vbObjectError + 2102, "AddStudentMetricsFromAtRiskSheet", _
+                  "The sheet '" & expectedSheetName & "' does not have the expected AtRisk columns. Rebuild it with BuildSec_AtRiskSummary."
+    End If
+
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+    lastRow = ws.Cells(ws.Rows.count, nameCol).End(xlUp).Row
+
+    For r = 5 To lastRow
+        classText = Trim$(CStr(ws.Cells(r, classCol).value))
+        nameText = Trim$(CStr(ws.Cells(r, nameCol).value))
+        regText = ""
+        If regCol > 0 Then regText = Trim$(CStr(ws.Cells(r, regCol).value))
+        If nameText <> "" Then
+            If regText <> "" Then
+                keyText = classText & "|REG|" & regText
+            Else
+                keyText = classText & "|NAME|" & nameText
+            End If
+
+            attemptedCount = EmailLongValue(ws.Cells(r, attemptedCol).value)
+            passedCount = EmailLongValue(ws.Cells(r, passedCol).value)
+            failedCount = EmailLongValue(ws.Cells(r, failedCol).value)
+
+            ' Retain all-VR/MC students in AtRisk for RAFA, but do
+            ' not include 0/0/0 rows in management-email outcomes.
+            If attemptedCount > 0 Or passedCount > 0 Or failedCount > 0 Then
+                If Not seen.Exists(keyText) Then
+                    seen.Add keyText, True
+                    summary.ValidStudentCount = summary.ValidStudentCount + 1
+                    Select Case failedCount
+                        Case 0: summary.PassAllStudentCount = summary.PassAllStudentCount + 1
+                        Case 1: summary.FailOneStudentCount = summary.FailOneStudentCount + 1
+                        Case 2: summary.FailTwoStudentCount = summary.FailTwoStudentCount + 1
+                        Case Else: summary.FailThreePlusStudentCount = summary.FailThreePlusStudentCount + 1
+                    End Select
+                End If
+            End If
+        End If
+    Next r
+End Sub
+
+Private Function BuildManagementAtRiskSheetName(ByVal levelText As String, _
+                                                ByVal assessmentName As String, _
+                                                ByVal yearText As String) As String
+    Dim levelCode As String, assessmentKey As String, reportYear As String
+    Dim maxAssessmentLength As Long
+    levelCode = "S" & FirstLevelDigit(levelText)
+    assessmentKey = ManagementAtRiskAssessmentKey(assessmentName)
+    reportYear = ExtractEmailYear(yearText)
+    If reportYear = "" Then reportYear = Trim$(yearText)
+    maxAssessmentLength = 31 - Len("AtRisk_") - Len(levelCode) - Len(reportYear) - 2
+    If maxAssessmentLength < 1 Then maxAssessmentLength = 1
+    BuildManagementAtRiskSheetName = "AtRisk_" & levelCode & "_" & _
+                                     Left$(assessmentKey, maxAssessmentLength) & "_" & reportYear
+End Function
+
+Private Function ManagementAtRiskAssessmentKey(ByVal assessmentName As String) As String
+    Select Case CanonicalExamKey(assessmentName)
+        Case "FIRSTCOMBINED": ManagementAtRiskAssessmentKey = "1COMB"
+        Case "SECONDCOMBINED": ManagementAtRiskAssessmentKey = "2COMB"
+        Case Else: ManagementAtRiskAssessmentKey = CanonicalExamKey(assessmentName)
+    End Select
+End Function
+
+Private Function EmailLongValue(ByVal valueData As Variant) As Long
+    If IsNumeric(valueData) Then
+        If CDbl(valueData) > 0# Then EmailLongValue = CLng(valueData)
+    End If
+End Function
 
 Private Sub AddSubjectMetricsToLevelSummary(ByRef summary As tEmailLevelSummary, _
                                             ByRef subjects() As tEmailSubject, _
@@ -1185,7 +1283,7 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, CardStart("1. Student Outcomes by Level", "")
     AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Students are classified according to the number of subjects failed, regardless of whether individual subjects are taken at G1, G2 or G3.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Students are classified according to the number of subjects failed, regardless of whether individual subjects are taken at G1, G2 or G3. Students with 0 attempted, 0 passed and 0 failed are retained in AtRisk for RAFA but excluded from this table.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
@@ -1933,6 +2031,18 @@ Private Function FindEmailHeader(ByVal ws As Worksheet, ByVal headerText As Stri
     For c = 1 To lastCol
         If StrComp(Trim$(CStr(ws.Cells(1, c).value)), headerText, vbTextCompare) = 0 Then
             FindEmailHeader = c
+            Exit Function
+        End If
+    Next c
+End Function
+
+Private Function FindEmailHeaderAtRow(ByVal ws As Worksheet, ByVal headerRow As Long, _
+                                      ByVal headerText As String) As Long
+    Dim lastCol As Long, c As Long
+    lastCol = ws.Cells(headerRow, ws.Columns.count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        If StrComp(Trim$(CStr(ws.Cells(headerRow, c).value)), headerText, vbTextCompare) = 0 Then
+            FindEmailHeaderAtRow = c
             Exit Function
         End If
     Next c
