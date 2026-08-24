@@ -26,6 +26,14 @@ Private Type TopStudentRec
     RawTopGrades As String
 End Type
 
+Private Type SecReportGroup
+    LevelCode As String
+    AssessmentKey As String
+    AssessmentLabel As String
+    YearText As String
+    SheetName As String
+End Type
+
 '=========================================================
 ' Module: modSecGradeDistribution
 '
@@ -58,10 +66,203 @@ ErrHandler:
     MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
 End Sub
 
+Private Sub CollectSecReportGroups(ByRef groups() As SecReportGroup, _
+                                   ByRef groupCount As Long, _
+                                   ByVal reportPrefix As String)
+    Dim ws As Worksheet
+    Dim levelCode As String, assessmentKey As String
+    Dim assessmentLabel As String, yearText As String
+    Dim i As Long, foundIndex As Long
+
+    For Each ws In ThisWorkbook.Worksheets
+        levelCode = "": assessmentKey = "": assessmentLabel = "": yearText = ""
+        If GetSecSourceReportLabels(ws, levelCode, assessmentKey, assessmentLabel, yearText) Then
+            foundIndex = 0
+            For i = 1 To groupCount
+                If groups(i).LevelCode = levelCode And _
+                   groups(i).AssessmentKey = assessmentKey And _
+                   groups(i).YearText = yearText Then
+                    foundIndex = i
+                    Exit For
+                End If
+            Next i
+            If foundIndex = 0 Then
+                groupCount = groupCount + 1
+                ReDim Preserve groups(1 To groupCount)
+                With groups(groupCount)
+                    .LevelCode = levelCode
+                    .AssessmentKey = assessmentKey
+                    .AssessmentLabel = assessmentLabel
+                    .YearText = yearText
+                    .SheetName = BuildSecReportSheetName(reportPrefix, levelCode, assessmentKey, yearText)
+                End With
+            End If
+        End If
+    Next ws
+
+    SortSecReportGroups groups, groupCount
+End Sub
+
+Private Function GetSecSourceReportLabels(ByVal ws As Worksheet, _
+                                          ByRef levelCode As String, _
+                                          ByRef assessmentKey As String, _
+                                          ByRef assessmentLabel As String, _
+                                          ByRef yearText As String) As Boolean
+    Dim classCol As Long, assessmentCol As Long, yearCol As Long
+    Dim lastRow As Long, lastCol As Long, r As Long, c As Long
+    Dim firstClass As String, headerText As String
+    Dim hasGradeColumn As Boolean
+
+    If LCase$(ws.Name) Like "*settings*" _
+       Or LCase$(ws.Name) Like "*config*" _
+       Or LCase$(ws.Name) Like "*menu*" _
+       Or LCase$(ws.Name) Like "*lookup*" _
+       Or LCase$(ws.Name) Like "*summary*" _
+       Or LCase$(ws.Name) Like "*template*" _
+       Or InStr(1, LCase$(ws.Name), "_subj analysis_") > 0 _
+       Or InStr(1, LCase$(ws.Name), "dashboard") > 0 _
+       Or InStr(1, LCase$(ws.Name), "atrisk_") > 0 _
+       Or InStr(1, LCase$(ws.Name), "topqual_") > 0 Then Exit Function
+
+    classCol = FindHeaderColumn(ws, 1, "Class")
+    assessmentCol = FindHeaderColumn(ws, 1, "Assessment")
+    yearCol = FindHeaderColumn(ws, 1, "Year")
+    If classCol = 0 Or assessmentCol = 0 Or yearCol = 0 Then Exit Function
+
+    lastRow = ws.Cells(ws.Rows.count, classCol).End(xlUp).Row
+    lastCol = ws.Cells(1, ws.Columns.count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        headerText = Trim$(CStr(ws.Cells(1, c).value))
+        If headerText <> "" And IsLikelySubjectGradeColumn(headerText) Then
+            hasGradeColumn = True
+            Exit For
+        End If
+    Next c
+    If Not hasGradeColumn Then Exit Function
+
+    For r = 2 To lastRow
+        If firstClass = "" Then firstClass = Trim$(CStr(ws.Cells(r, classCol).value))
+        If assessmentLabel = "" Then assessmentLabel = Trim$(CStr(ws.Cells(r, assessmentCol).value))
+        If yearText = "" Then yearText = NormalizeSecReportYear(CStr(ws.Cells(r, yearCol).value))
+        If firstClass <> "" And assessmentLabel <> "" And yearText <> "" Then Exit For
+    Next r
+
+    If firstClass = "" Or UCase$(Left$(firstClass, 1)) = "Y" Then Exit Function
+    levelCode = InferLevelCodeFromClass(firstClass)
+    assessmentKey = CanonicalSecReportAssessmentKey(assessmentLabel)
+    If levelCode = "" Or assessmentKey = "" Or yearText = "" Then Exit Function
+    GetSecSourceReportLabels = True
+End Function
+
+Private Function SecSourceMatchesGroup(ByVal ws As Worksheet, _
+                                       ByRef targetGroup As SecReportGroup) As Boolean
+    Dim levelCode As String, assessmentKey As String
+    Dim assessmentLabel As String, yearText As String
+    If GetSecSourceReportLabels(ws, levelCode, assessmentKey, assessmentLabel, yearText) Then
+        SecSourceMatchesGroup = (levelCode = targetGroup.LevelCode And _
+                                 assessmentKey = targetGroup.AssessmentKey And _
+                                 yearText = targetGroup.YearText)
+    End If
+End Function
+
+Private Function CanonicalSecReportAssessmentKey(ByVal assessmentLabel As String) As String
+    Dim compact As String, i As Long, ch As String
+    For i = 1 To Len(UCase$(assessmentLabel))
+        ch = Mid$(UCase$(assessmentLabel), i, 1)
+        If ch Like "[A-Z0-9]" Then compact = compact & ch
+    Next i
+
+    Select Case True
+        Case compact = "WA1" Or InStr(compact, "WEIGHTEDASSESSMENT1") > 0
+            CanonicalSecReportAssessmentKey = "WA1"
+        Case compact = "WA2" Or InStr(compact, "WEIGHTEDASSESSMENT2") > 0
+            CanonicalSecReportAssessmentKey = "WA2"
+        Case compact = "WA3" Or InStr(compact, "WEIGHTEDASSESSMENT3") > 0
+            CanonicalSecReportAssessmentKey = "WA3"
+        Case InStr(compact, "FIRSTCOMBINED") > 0 Or InStr(compact, "1STCOMBINED") > 0
+            CanonicalSecReportAssessmentKey = "1COMB"
+        Case InStr(compact, "SECONDCOMBINED") > 0 Or InStr(compact, "2NDCOMBINED") > 0
+            CanonicalSecReportAssessmentKey = "2COMB"
+        Case InStr(compact, "PRELIM") > 0
+            CanonicalSecReportAssessmentKey = "PRELIM"
+        Case compact = "EYE" Or InStr(compact, "ENDOFYEAR") > 0
+            CanonicalSecReportAssessmentKey = "EYE"
+        Case InStr(compact, "MIDYEAR") > 0 Or compact = "MYE"
+            CanonicalSecReportAssessmentKey = "MYE"
+        Case Else
+            CanonicalSecReportAssessmentKey = compact
+    End Select
+End Function
+
+Private Function NormalizeSecReportYear(ByVal valueText As String) As String
+    Dim i As Long, token As String
+    For i = 1 To Len(valueText) - 3
+        token = Mid$(valueText, i, 4)
+        If IsNumeric(token) Then
+            If CLng(token) >= 2000 And CLng(token) <= 2099 Then
+                NormalizeSecReportYear = token
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+Private Function BuildSecReportSheetName(ByVal reportPrefix As String, _
+                                         ByVal levelCode As String, _
+                                         ByVal assessmentKey As String, _
+                                         ByVal yearText As String) As String
+    Dim maxAssessmentLength As Long, safeAssessment As String
+    maxAssessmentLength = 31 - Len(reportPrefix) - Len(levelCode) - Len(yearText) - 2
+    If maxAssessmentLength < 1 Then maxAssessmentLength = 1
+    safeAssessment = Left$(assessmentKey, maxAssessmentLength)
+    BuildSecReportSheetName = reportPrefix & levelCode & "_" & safeAssessment & "_" & yearText
+End Function
+
+Private Sub SortSecReportGroups(ByRef groups() As SecReportGroup, ByVal groupCount As Long)
+    Dim i As Long, j As Long
+    For i = 1 To groupCount - 1
+        For j = i + 1 To groupCount
+            If SecReportGroupBefore(groups(j), groups(i)) Then SwapSecReportGroups groups(i), groups(j)
+        Next j
+    Next i
+End Sub
+
+Private Function SecReportGroupBefore(ByRef a As SecReportGroup, ByRef b As SecReportGroup) As Boolean
+    Dim ao As Long, bo As Long
+    If a.YearText <> b.YearText Then SecReportGroupBefore = (a.YearText > b.YearText): Exit Function
+    ao = SecReportAssessmentOrder(a.AssessmentKey): bo = SecReportAssessmentOrder(b.AssessmentKey)
+    If ao <> bo Then SecReportGroupBefore = (ao < bo): Exit Function
+    If a.LevelCode <> b.LevelCode Then SecReportGroupBefore = (a.LevelCode < b.LevelCode): Exit Function
+    SecReportGroupBefore = (a.AssessmentKey < b.AssessmentKey)
+End Function
+
+Private Function SecReportAssessmentOrder(ByVal assessmentKey As String) As Long
+    Select Case assessmentKey
+        Case "WA1": SecReportAssessmentOrder = 1
+        Case "WA2": SecReportAssessmentOrder = 2
+        Case "1COMB": SecReportAssessmentOrder = 3
+        Case "WA3": SecReportAssessmentOrder = 4
+        Case "PRELIM": SecReportAssessmentOrder = 5
+        Case "2COMB": SecReportAssessmentOrder = 6
+        Case "EYE": SecReportAssessmentOrder = 7
+        Case Else: SecReportAssessmentOrder = 100
+    End Select
+End Function
+
+Private Sub SwapSecReportGroups(ByRef a As SecReportGroup, ByRef b As SecReportGroup)
+    Dim textValue As String
+    textValue = a.LevelCode: a.LevelCode = b.LevelCode: b.LevelCode = textValue
+    textValue = a.AssessmentKey: a.AssessmentKey = b.AssessmentKey: b.AssessmentKey = textValue
+    textValue = a.AssessmentLabel: a.AssessmentLabel = b.AssessmentLabel: b.AssessmentLabel = textValue
+    textValue = a.YearText: a.YearText = b.YearText: b.YearText = textValue
+    textValue = a.SheetName: a.SheetName = b.SheetName: b.SheetName = textValue
+End Sub
+
 Public Sub BuildSec_TopQualityByLevel()
     Dim wb As Workbook
     Dim ws As Worksheet, wsOut As Worksheet
-    Dim lvl As Variant
+    Dim groups() As SecReportGroup
+    Dim groupCount As Long, groupIndex As Long
     Dim recs() As TopStudentRec
     Dim recCount As Long
     Dim outRow As Long
@@ -73,28 +274,32 @@ Public Sub BuildSec_TopQualityByLevel()
     Set wb = ThisWorkbook
     groupThresholdPct = GetGroupThresholdPercent()
 
-    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
-        Set wsOut = GetOrCreateWorksheet("TopQual_" & CStr(lvl))
-        PrepareTopQualitySheet wsOut, CStr(lvl)
-        levelMode = GetLevelMode(CStr(lvl))
+    CollectSecReportGroups groups, groupCount, "TopQual_"
+    For groupIndex = 1 To groupCount
+        Set wsOut = GetOrCreateWorksheet(groups(groupIndex).SheetName)
+        PrepareTopQualitySheet wsOut, groups(groupIndex).LevelCode, _
+                               groups(groupIndex).AssessmentLabel, groups(groupIndex).YearText
+        levelMode = GetLevelMode(groups(groupIndex).LevelCode)
 
         recCount = 0
         For Each ws In wb.Worksheets
-            AppendTopQualityFromSourceSheet ws, CStr(lvl), recs, recCount, groupThresholdPct
+            If SecSourceMatchesGroup(ws, groups(groupIndex)) Then
+                AppendTopQualityFromSourceSheet ws, groups(groupIndex).LevelCode, recs, recCount, groupThresholdPct
+            End If
         Next ws
 
         outRow = 5
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G3", 20, recs, recCount, levelMode)
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G2", 10, recs, recCount, levelMode)
-        outRow = WriteTopGroupSection(wsOut, outRow, CStr(lvl), "G1", 10, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G3", 20, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G2", 10, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G1", 10, recs, recCount, levelMode)
 
         FormatTopQualitySheet wsOut, outRow - 1
         AddTopQualityHomeButton wsOut
-    Next lvl
+    Next groupIndex
 
     BuildTopQualityNavigation
 
-    MsgBox "Top quality sheets built: TopQual_S1 to TopQual_S5.", vbInformation
+    MsgBox groupCount & " assessment-specific top-quality sheet(s) built.", vbInformation
     Exit Sub
 
 ErrHandler:
@@ -106,8 +311,8 @@ Public Sub BuildTopQualityNavigation()
     Dim startCell As Range
     Dim startRow As Long, startCol As Long
     Dim rowPtr As Long
-    Dim lvl As Variant
-    Dim sheetName As String
+    Dim reportSheets() As String
+    Dim reportCount As Long, i As Long
     Dim shp As Shape
     Dim k As Long
 
@@ -122,7 +327,7 @@ Public Sub BuildTopQualityNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 3)).Clear
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 220, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(TOP_NAV_BTN_PREFIX)) = TOP_NAV_BTN_PREFIX Then shp.Delete
@@ -134,16 +339,16 @@ Public Sub BuildTopQualityNavigation()
     wsNav.Cells(startRow, startCol).Font.Color = RGB(31, 73, 125)
     rowPtr = startRow + 1
 
-    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
-        sheetName = "TopQual_" & CStr(lvl)
-        If WorksheetExistsByName(sheetName) Then
-            CreateTopQualityNavButton wsNav, sheetName, CStr(lvl) & " Top Students", rowPtr, startCol
-        Else
-            wsNav.Cells(rowPtr, startCol).value = CStr(lvl) & " Top Students (not built)"
-            wsNav.Cells(rowPtr, startCol).Font.Italic = True
-        End If
-        rowPtr = rowPtr + 2
-    Next lvl
+    CollectVersionedReportSheetNames "TopQual_", reportSheets, reportCount
+    If reportCount = 0 Then
+        wsNav.Cells(rowPtr, startCol).value = "No assessment-specific top-student reports built."
+        wsNav.Cells(rowPtr, startCol).Font.Italic = True
+    Else
+        For i = 1 To reportCount
+            CreateTopQualityNavButton wsNav, reportSheets(i), ReportNavigationLabel(reportSheets(i), "TopQual_"), rowPtr, startCol
+            rowPtr = rowPtr + 2
+        Next i
+    End If
     Exit Sub
 
 ErrHandler:
@@ -244,7 +449,8 @@ Public Sub BuildSec_AtRiskSummary()
     Dim wb As Workbook
     Dim ws As Worksheet
     Dim wsOut As Worksheet
-    Dim lvl As Variant
+    Dim groups() As SecReportGroup
+    Dim groupCount As Long, groupIndex As Long
     Dim outRow As Long
     Dim addedRows As Long
     Dim threshold As Long
@@ -254,31 +460,37 @@ Public Sub BuildSec_AtRiskSummary()
     Set wb = ThisWorkbook
     threshold = GetAtRiskFailThreshold()
 
-    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
-        Set wsOut = GetOrCreateWorksheet("AtRisk_" & CStr(lvl))
-        PrepareAtRiskSheet wsOut, CStr(lvl), threshold
+    CollectSecReportGroups groups, groupCount, "AtRisk_"
+    For groupIndex = 1 To groupCount
+        Set wsOut = GetOrCreateWorksheet(groups(groupIndex).SheetName)
+        PrepareAtRiskSheet wsOut, groups(groupIndex).LevelCode, threshold, _
+                           groups(groupIndex).AssessmentLabel, groups(groupIndex).YearText
 
         outRow = 5
         For Each ws In wb.Worksheets
-            addedRows = AppendSecAtRiskFromSourceSheet(ws, wsOut, outRow, threshold, CStr(lvl))
-            If addedRows > 0 Then outRow = outRow + addedRows
+            If SecSourceMatchesGroup(ws, groups(groupIndex)) Then
+                addedRows = AppendSecAtRiskFromSourceSheet(ws, wsOut, outRow, threshold, groups(groupIndex).LevelCode)
+                If addedRows > 0 Then outRow = outRow + addedRows
+            End If
         Next ws
 
         If outRow = 5 Then
-            wsOut.Cells(outRow, 1).value = "No eligible SEC result rows found for " & CStr(lvl) & "."
+            wsOut.Cells(outRow, 1).value = "No eligible SEC result rows found for " & groups(groupIndex).LevelCode & "."
             outRow = outRow + 1
         End If
 
         FinalizeAtRiskSheet wsOut, outRow - 1
-    Next lvl
+    Next groupIndex
 
     BuildSec_AtRiskNavigation
     BuildAllAtRiskHomeButtons
 
-    wb.Worksheets("AtRisk_S1").Activate
-    wb.Worksheets("AtRisk_S1").Range("A1").Select
+    If groupCount > 0 Then
+        wb.Worksheets(groups(1).SheetName).Activate
+        wb.Worksheets(groups(1).SheetName).Range("A1").Select
+    End If
 
-    MsgBox "SEC at-risk sheets built: AtRisk_S1 to AtRisk_S5.", vbInformation
+    MsgBox groupCount & " assessment-specific at-risk sheet(s) built.", vbInformation
     Exit Sub
 
 ErrHandler:
@@ -733,11 +945,13 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     WriteTopGroupSection = r + 1
 End Function
 
-Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As String)
+Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As String, _
+                                   ByVal assessmentLabel As String, ByVal yearText As String)
     Dim explainer As String
     Dim levelMode As String
 
-    wsOut.Range("A1").value = levelCode & " Top Students by Top Grades"
+    wsOut.Range("A1").value = levelCode & " " & assessmentLabel & IIf(yearText <> "", " " & yearText, "") & _
+                              " - Top Students by Top Grades"
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
@@ -992,6 +1206,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim g1Taken As Long, g2Taken As Long, g3Taken As Long
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long
     Dim groupTotalCount As Long
+    Dim countedOutcomeCount As Long
     Dim fsbbGroup As String
     Dim displayGroup As String
     Dim groupThresholdPct As Double
@@ -1095,6 +1310,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         g2GroupCount = 0
         g3GroupCount = 0
         groupTotalCount = 0
+        countedOutcomeCount = 0
 
         For i = 1 To subjCount
             rawGrade = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectCols(i)).value)))
@@ -1115,10 +1331,15 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 End Select
             End If
 
-            isVrSubject = (rawGrade = "VR" Or rawScore = "VR")
+            isVrSubject = (rawGrade = "VR" Or rawScore = "VR" Or _
+                           rawGrade = "MC" Or rawScore = "MC")
             If isVrSubject Then
                 If vrSubjects <> "" Then vrSubjects = vrSubjects & ", "
-                vrSubjects = vrSubjects & subjectNames(i)
+                If rawGrade = "MC" Or rawScore = "MC" Then
+                    vrSubjects = vrSubjects & subjectNames(i) & " (MC)"
+                Else
+                    vrSubjects = vrSubjects & subjectNames(i) & " (VR)"
+                End If
                 GoTo NextSubject
             End If
 
@@ -1129,11 +1350,13 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 failCount = failCount + 1
                 If failedSubjects <> "" Then failedSubjects = failedSubjects & ", "
                 failedSubjects = failedSubjects & subjectNames(i) & " (AB)"
+                countedOutcomeCount = countedOutcomeCount + 1
                 GoTo NextSubject
             End If
 
             If gradeStr <> "" Then
                 attemptedCount = attemptedCount + 1
+                countedOutcomeCount = countedOutcomeCount + 1
                 Select Case UCase$(Trim$(subjectSchemeKeys(i)))
                     Case "G1": g1Taken = g1Taken + 1
                     Case "G2": g2Taken = g2Taken + 1
@@ -1152,8 +1375,14 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 NextSubject:
         Next i
 
-        If attemptedCount > 0 Or groupTotalCount > 0 Then
-            If failCount >= atRiskFailThreshold Then
+        ' Keep students whose release contains only VR/MC for RAFA
+        ' follow-up, but classify them as MONITOR rather than OK.
+        ' Completely blank rows remain excluded. AB is a counted
+        ' outcome and contributes one failure.
+        If countedOutcomeCount > 0 Or groupTotalCount > 0 Then
+            If countedOutcomeCount = 0 Then
+                riskBand = "MONITOR"
+            ElseIf failCount >= atRiskFailThreshold Then
                 riskBand = "AT RISK"
             ElseIf failCount >= 1 Then
                 riskBand = "MONITOR"
@@ -1206,8 +1435,8 @@ Public Sub BuildSec_AtRiskNavigation()
     Dim startCell As Range
     Dim startRow As Long, startCol As Long
     Dim rowPtr As Long
-    Dim lvl As Variant
-    Dim sheetName As String
+    Dim reportSheets() As String
+    Dim reportCount As Long, i As Long
     Dim shp As Shape
     Dim k As Long
 
@@ -1222,7 +1451,7 @@ Public Sub BuildSec_AtRiskNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 120, startCol + 3)).Clear
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 220, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(ATRISK_NAV_BTN_PREFIX)) = ATRISK_NAV_BTN_PREFIX Then
@@ -1236,16 +1465,16 @@ Public Sub BuildSec_AtRiskNavigation()
     wsNav.Cells(startRow, startCol).Font.Color = RGB(156, 0, 6)
     rowPtr = startRow + 1
 
-    For Each lvl In Array("S1", "S2", "S3", "S4", "S5")
-        sheetName = "AtRisk_" & CStr(lvl)
-        If WorksheetExistsByName(sheetName) Then
-            CreateAtRiskNavButton wsNav, sheetName, CStr(lvl) & " At Risk", rowPtr, startCol
-        Else
-            wsNav.Cells(rowPtr, startCol).value = CStr(lvl) & " At Risk (not built)"
-            wsNav.Cells(rowPtr, startCol).Font.Italic = True
-        End If
-        rowPtr = rowPtr + 2
-    Next lvl
+    CollectVersionedReportSheetNames "AtRisk_", reportSheets, reportCount
+    If reportCount = 0 Then
+        wsNav.Cells(rowPtr, startCol).value = "No assessment-specific at-risk reports built."
+        wsNav.Cells(rowPtr, startCol).Font.Italic = True
+    Else
+        For i = 1 To reportCount
+            CreateAtRiskNavButton wsNav, reportSheets(i), ReportNavigationLabel(reportSheets(i), "AtRisk_"), rowPtr, startCol
+            rowPtr = rowPtr + 2
+        Next i
+    End If
 
     Exit Sub
 
@@ -1357,6 +1586,61 @@ Private Function WorksheetExistsByName(ByVal sheetName As String) As Boolean
     WorksheetExistsByName = Not ws Is Nothing
 End Function
 
+Private Sub CollectVersionedReportSheetNames(ByVal reportPrefix As String, _
+                                             ByRef sheetNames() As String, _
+                                             ByRef sheetCount As Long)
+    Dim ws As Worksheet, i As Long, j As Long, tmp As String
+    Dim parts As Variant
+
+    For Each ws In ThisWorkbook.Worksheets
+        If Left$(ws.Name, Len(reportPrefix)) = reportPrefix Then
+            parts = Split(ws.Name, "_")
+            ' Versioned form: Prefix_S1_Assessment_Year
+            If UBound(parts) >= 3 Then
+                sheetCount = sheetCount + 1
+                ReDim Preserve sheetNames(1 To sheetCount)
+                sheetNames(sheetCount) = ws.Name
+            End If
+        End If
+    Next ws
+
+    For i = 1 To sheetCount - 1
+        For j = i + 1 To sheetCount
+            If VersionedReportSheetBefore(sheetNames(j), sheetNames(i)) Then
+                tmp = sheetNames(i): sheetNames(i) = sheetNames(j): sheetNames(j) = tmp
+            End If
+        Next j
+    Next i
+End Sub
+
+Private Function VersionedReportSheetBefore(ByVal aName As String, ByVal bName As String) As Boolean
+    Dim aParts As Variant, bParts As Variant
+    Dim ao As Long, bo As Long
+    aParts = Split(aName, "_"): bParts = Split(bName, "_")
+    If StrComp(CStr(aParts(1)), CStr(bParts(1)), vbTextCompare) <> 0 Then
+        VersionedReportSheetBefore = (StrComp(CStr(aParts(1)), CStr(bParts(1)), vbTextCompare) < 0)
+        Exit Function
+    End If
+    ao = SecReportAssessmentOrder(CStr(aParts(2))): bo = SecReportAssessmentOrder(CStr(bParts(2)))
+    If ao <> bo Then VersionedReportSheetBefore = (ao < bo): Exit Function
+    If StrComp(CStr(aParts(2)), CStr(bParts(2)), vbTextCompare) <> 0 Then
+        VersionedReportSheetBefore = (StrComp(CStr(aParts(2)), CStr(bParts(2)), vbTextCompare) < 0)
+        Exit Function
+    End If
+    VersionedReportSheetBefore = (CStr(aParts(3)) > CStr(bParts(3)))
+End Function
+
+Private Function ReportNavigationLabel(ByVal sheetName As String, _
+                                       ByVal reportPrefix As String) As String
+    Dim labelText As String
+    labelText = Replace(Mid$(sheetName, Len(reportPrefix) + 1), "_", " ")
+    If reportPrefix = "AtRisk_" Then
+        ReportNavigationLabel = labelText & " At Risk"
+    Else
+        ReportNavigationLabel = labelText & " Top Students"
+    End If
+End Function
+
 Private Function GetOrCreateWorksheet(ByVal sheetName As String) As Worksheet
     Dim ws As Worksheet
 
@@ -1374,12 +1658,15 @@ Private Function GetOrCreateWorksheet(ByVal sheetName As String) As Worksheet
     Set GetOrCreateWorksheet = ws
 End Function
 
-Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As String, ByVal threshold As Long)
-    wsOut.Range("A1").value = levelCode & " Students At Risk"
+Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As String, ByVal threshold As Long, _
+                               ByVal assessmentLabel As String, ByVal yearText As String)
+    wsOut.Range("A1").value = levelCode & " " & assessmentLabel & IIf(yearText <> "", " " & yearText, "") & _
+                              " - Students At Risk"
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
-    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & " (VR excluded; AB considered 0 marks)"
+    wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & _
+                              " (AB considered 0 marks; all-VR/MC students retained as MONITOR for RAFA)"
     wsOut.Range("A2").Font.Italic = True
 
     wsOut.Cells(4, 1).value = "Level"
@@ -1393,7 +1680,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 9).value = "Risk Band"
     wsOut.Cells(4, 10).value = "SortKey"
     wsOut.Cells(4, 12).value = "Attempted Subjects"
-    wsOut.Cells(4, 13).value = "VR Subjects"
+    wsOut.Cells(4, 13).value = "VR/MC Subjects"
     wsOut.Cells(4, 14).value = "AB Subjects"
     wsOut.Cells(4, 15).value = "Group"
     wsOut.Rows(4).Font.Bold = True
