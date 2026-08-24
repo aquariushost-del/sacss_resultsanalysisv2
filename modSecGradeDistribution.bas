@@ -173,19 +173,23 @@ Private Function CanonicalSecReportAssessmentKey(ByVal assessmentLabel As String
     Next i
 
     Select Case True
-        Case compact = "WA1" Or InStr(compact, "WEIGHTEDASSESSMENT1") > 0
+        Case InStr(compact, "WA1") > 0 Or InStr(compact, "TERM1WA") > 0 Or InStr(compact, "TERM1NWA") > 0
             CanonicalSecReportAssessmentKey = "WA1"
-        Case compact = "WA2" Or InStr(compact, "WEIGHTEDASSESSMENT2") > 0
+        Case InStr(compact, "WA2") > 0 Or InStr(compact, "TERM2WA") > 0 Or InStr(compact, "TERM2NWA") > 0
             CanonicalSecReportAssessmentKey = "WA2"
-        Case compact = "WA3" Or InStr(compact, "WEIGHTEDASSESSMENT3") > 0
-            CanonicalSecReportAssessmentKey = "WA3"
-        Case InStr(compact, "FIRSTCOMBINED") > 0 Or InStr(compact, "1STCOMBINED") > 0
+        Case InStr(compact, "FIRSTCOMBINED") > 0 Or InStr(compact, "1STCOMBINED") > 0 Or _
+             InStr(compact, "COMBINED1") > 0 Or InStr(compact, "SEMESTER1") > 0 Or _
+             InStr(compact, "TERM2COMBINED") > 0
             CanonicalSecReportAssessmentKey = "1COMB"
-        Case InStr(compact, "SECONDCOMBINED") > 0 Or InStr(compact, "2NDCOMBINED") > 0
-            CanonicalSecReportAssessmentKey = "2COMB"
+        Case InStr(compact, "WA3") > 0 Or InStr(compact, "TERM3WA") > 0 Or InStr(compact, "TERM3NWA") > 0
+            CanonicalSecReportAssessmentKey = "WA3"
         Case InStr(compact, "PRELIM") > 0
             CanonicalSecReportAssessmentKey = "PRELIM"
-        Case compact = "EYE" Or InStr(compact, "ENDOFYEAR") > 0
+        Case InStr(compact, "SECONDCOMBINED") > 0 Or InStr(compact, "2NDCOMBINED") > 0 Or _
+             InStr(compact, "COMBINED2") > 0 Or InStr(compact, "SEMESTER2") > 0 Or _
+             InStr(compact, "TERM3COMBINED") > 0 Or InStr(compact, "TERM4COMBINED") > 0
+            CanonicalSecReportAssessmentKey = "2COMB"
+        Case InStr(compact, "EYE") > 0 Or InStr(compact, "ENDOFYEAR") > 0
             CanonicalSecReportAssessmentKey = "EYE"
         Case InStr(compact, "MIDYEAR") > 0 Or compact = "MYE"
             CanonicalSecReportAssessmentKey = "MYE"
