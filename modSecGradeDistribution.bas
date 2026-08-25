@@ -1,4 +1,4 @@
- Attribute VB_Name = "modSecGradeDistribution"
+Attribute VB_Name = "modSecGradeDistribution"
 Option Explicit
 
 Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
@@ -2072,9 +2072,9 @@ Public Sub BuildSecSubjectGradeDistribution( _
     outEndRow = visualEndRow
 
     leftPos = wsDest.Columns(colMean + 2).Left
-    topPos = wsDest.Rows(titleRow).Top
+    topPos = ExactSecRowTop(wsDest, titleRow)
     chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
-    chartHeight = wsDest.Rows(titleRow).Resize(chartRowCount).Height
+    chartHeight = ExactSecRowsHeight(wsDest, titleRow, visualEndRow)
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
     co.Name = "SecChart_R" & CStr(titleRow) & _
@@ -2192,29 +2192,17 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
     Dim shp As Shape
     Dim titleRow As Long, endRow As Long, anchorCol As Long
     Dim chartName As String
-    Dim actualInsideTop As Double, correctedTop As Double
 
     On Error GoTo AlignmentDone
 
     For Each co In ws.ChartObjects
         If ParseSecChartAnchor(co.Name, titleRow, endRow, anchorCol) Then
             co.Placement = xlFreeFloating
-            co.Top = ws.Rows(titleRow).Top
+            co.Top = ExactSecRowTop(ws, titleRow)
             co.Left = ws.Columns(anchorCol).Left
             co.Width = ws.Columns(anchorCol).Resize(, 6).Width
-            co.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
+            co.Height = ExactSecRowsHeight(ws, titleRow, endRow)
             SetSecChartPlotArea co
-
-            ' Mac Excel may ignore the requested InsideTop but it still reports
-            ' the offset it actually rendered. Shift the outer chart by that
-            ' measured offset so the visible plot begins at the table header.
-            actualInsideTop = 0
-            On Error Resume Next
-            actualInsideTop = co.Chart.PlotArea.InsideTop
-            On Error GoTo AlignmentDone
-            correctedTop = ws.Rows(titleRow + 1).Top - actualInsideTop
-            If correctedTop < 0 Then correctedTop = 0
-            co.Top = correctedTop
         End If
     Next co
 
@@ -2234,8 +2222,8 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
                 If ParseSecChartAnchor(chartName, titleRow, endRow, anchorCol) Then
                     ' Keep the narrative panel aligned to the subject block,
                     ' independently of the chart's measured plot correction.
-                    shp.Top = ws.Rows(titleRow).Top
-                    shp.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
+                    shp.Top = ExactSecRowTop(ws, titleRow)
+                    shp.Height = ExactSecRowsHeight(ws, titleRow, endRow)
                 Else
                     shp.Top = co.Top
                     shp.Height = co.Height
@@ -2246,6 +2234,37 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
 
 AlignmentDone:
 End Sub
+
+Private Function ExactSecRowTop(ByVal ws As Worksheet, ByVal targetRow As Long) As Double
+    Dim r As Long
+    Dim totalPoints As Double
+
+    If targetRow <= 1 Then Exit Function
+
+    ' On the supplied Mac workbook, Rows(targetRow).Top accumulated roughly
+    ' 0.25 extra points per default-height row. Summing the stored individual
+    ' row heights follows the worksheet drawing grid exactly.
+    For r = 1 To targetRow - 1
+        totalPoints = totalPoints + CDbl(ws.Rows(r).RowHeight)
+    Next r
+
+    ExactSecRowTop = totalPoints
+End Function
+
+Private Function ExactSecRowsHeight(ByVal ws As Worksheet, _
+                                    ByVal firstRow As Long, _
+                                    ByVal lastRow As Long) As Double
+    Dim r As Long
+    Dim totalPoints As Double
+
+    If firstRow < 1 Or lastRow < firstRow Then Exit Function
+
+    For r = firstRow To lastRow
+        totalPoints = totalPoints + CDbl(ws.Rows(r).RowHeight)
+    Next r
+
+    ExactSecRowsHeight = totalPoints
+End Function
 
 Private Sub SetSecChartPlotArea(ByVal co As ChartObject)
     Dim insideLeft As Double, insideTop As Double
