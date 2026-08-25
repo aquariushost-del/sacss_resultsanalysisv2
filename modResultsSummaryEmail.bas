@@ -15,7 +15,6 @@ Option Explicit
 ' OPTIONAL SETTINGS (Settings!Q2:R30)
 '   SchoolName          | School display name
 '   PreparedBy          | Name/role shown in footer
-'   EmbargoText         | Internal-use banner text
 '   EmailTo             | Default To recipients
 '   EmailCC             | Default CC recipients
 '   EmailSubjectPrefix  | Default: Results Summary
@@ -925,7 +924,7 @@ Private Function BuildResultsEmailHtml(ByVal sourceSheetName As String, _
 
     schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
     preparedBy = GetEmailSetting("PreparedBy", Application.UserName)
-    embargoText = GetEmailSetting("EmbargoText", "For Internal Use only. Embargoed until authorised for release.")
+    embargoText = "For Internal Use only."
 
     For i = 1 To subjectCount
         totalEntries = totalEntries + subjects(i).N
@@ -1460,11 +1459,10 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
                                          ByVal yearText As String, _
                                          ByVal breakdownLabel As String) As String
     Dim html As String
-    Dim schoolName As String, preparedBy As String, embargoText As String
+    Dim schoolName As String, embargoText As String
 
     schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
-    preparedBy = GetEmailSetting("PreparedBy", Application.UserName)
-    embargoText = GetEmailSetting("EmbargoText", "For Internal Use only. Embargoed until authorised for release.")
+    embargoText = "For Internal Use only."
 
     AppendHtml html, "<html><body style='margin:0;padding:0;background:#f5f9fd;font-family:Arial,Helvetica,sans-serif;color:#23384d;'>"
     AppendHtml html, "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' border='0' style='background:#f5f9fd;'><tr><td align='center' style='padding:14px;'>"
@@ -1479,13 +1477,13 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, CardStart("1. Student Outcomes by " & breakdownLabel, "")
     AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount, breakdownLabel)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Failure figures are cumulative: a student who failed three subjects appears in the Failed &ge;1, &ge;2 and &ge;3 columns. Values show percentage (number of students), regardless of whether subjects are taken at G1, G2 or G3.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Failure figures are cumulative: a student who failed three subjects appears in the Failed &ge;1, &ge;2 and &ge;3 columns.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
     AppendHtml html, CardStart("2. Student Distinction Profile by " & breakdownLabel, "")
     AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount, breakdownLabel)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3. Values show percentage (number of students). Distinction = A1/A2 for G3 or EX/O-Level; 1/2 for G2 or NA/N(A); and A only for G1 or NT/N(T).</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
@@ -1504,7 +1502,6 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
     AppendHtml html, "<tr><td style='background:#ffffff;border:1px solid #d7e4ef;padding:14px 16px;font-size:11px;line-height:16px;color:#60788e;'>" & _
                      "<div style='font-size:13px;line-height:19px;color:#385a78;'>Detailed subject-level results, students at risk and top performers are available in the attached Excel workbook.</div>" & _
                      "<div style='font-size:13px;line-height:19px;color:#385a78;margin-top:8px;'>Thank you.</div>" & _
-                     "<div style='margin-top:10px;'><b>Prepared by:</b> " & HtmlEncode(preparedBy) & " &nbsp;|&nbsp; <b>Generated:</b> " & Format$(Now, "dd mmm yyyy, hh:mm AM/PM") & "</div>" & _
                      "</td></tr>"
 
     AppendHtml html, "</table></td></tr></table></body></html>"
@@ -1705,12 +1702,12 @@ End Function
 Private Function BuildManagementConcernCriteria(ByRef config As tEmailManagementConfig) As String
     BuildManagementConcernCriteria = "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Criteria: Concern = pass rate below " & _
         FormatThreshold(config.ConcernBelowPct) & "; Monitor = pass rate from " & FormatThreshold(config.ConcernBelowPct) & _
-        " to below " & FormatThreshold(config.MonitorBelowPct) & ". Subject/G-level groups with fewer than " & _
+        " to below " & FormatThreshold(config.MonitorBelowPct) & ". Subjects with fewer than " & _
         config.MinCandidature & " students are excluded due to the small candidature. Full results remain available in the attached Excel workbook.</div>"
 End Function
 
 Private Function BuildManagementStrongCriteria(ByRef config As tEmailManagementConfig) As String
-    BuildManagementStrongCriteria = "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Criteria: Subject/G-level groups are highlighted if the pass rate is at least " & _
+    BuildManagementStrongCriteria = "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Criteria: Subjects are highlighted if the pass rate is at least " & _
         FormatThreshold(config.StrongPassAtLeastPct) & " and/or the distinction rate is at least " & _
         FormatThreshold(config.StrongDistAtLeastPct) & ". Groups with fewer than " & config.MinCandidature & _
         " students are excluded from this summary.</div>"
