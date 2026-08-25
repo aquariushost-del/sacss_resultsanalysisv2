@@ -644,6 +644,13 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
         End If
     Next i
 
+    ' Use an explicit row height for every generated layout row. This avoids
+    ' the workbook/platform mismatch between the stored default row height and
+    ' the coordinate grid Excel uses for floating drawing objects.
+    If destRowHeader > 3 Then
+        wsDest.Rows("2:" & CStr(destRowHeader + 5)).RowHeight = 15#
+    End If
+
     ' Column AutoFit calls made while later subjects are built can move or
     ' resize earlier floating objects in Excel for Mac. Snap every chart and
     ' panel back to its encoded worksheet anchors after the sheet is complete.
@@ -2072,14 +2079,16 @@ Public Sub BuildSecSubjectGradeDistribution( _
     outEndRow = visualEndRow
 
     leftPos = wsDest.Columns(colMean + 2).Left
-    topPos = ExactSecRowTop(wsDest, titleRow)
+    ' Strict alignment rule: the chart and narrative panel start at the top
+    ' of the table header, not at the separate subject-title row.
+    topPos = ExactSecRowTop(wsDest, destRowHeader)
     chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
-    chartHeight = ExactSecRowsHeight(wsDest, titleRow, visualEndRow)
+    chartHeight = ExactSecRowsHeight(wsDest, destRowHeader, visualEndRow)
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
-    co.Name = "SecChart_R" & CStr(titleRow) & _
+    co.Name = "SecChart_R" & CStr(destRowHeader) & _
               "_E" & CStr(visualEndRow) & "_C" & CStr(colMean + 2)
-    co.Placement = xlFreeFloating
+    co.Placement = xlMove
     Set ch = co.Chart
 
     With ch
@@ -2160,7 +2169,7 @@ Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
 
     Set shp = ws.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, panelLeft, panelTop, panelWidth, panelHeight)
     shp.Name = "FlagPanel_" & co.Name
-    shp.Placement = xlFreeFloating
+    shp.Placement = xlMove
 
     With shp
         .Fill.ForeColor.RGB = fillColor
@@ -2197,7 +2206,7 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
 
     For Each co In ws.ChartObjects
         If ParseSecChartAnchor(co.Name, titleRow, endRow, anchorCol) Then
-            co.Placement = xlFreeFloating
+            co.Placement = xlMove
             co.Top = ExactSecRowTop(ws, titleRow)
             co.Left = ws.Columns(anchorCol).Left
             co.Width = ws.Columns(anchorCol).Resize(, 6).Width
@@ -2215,7 +2224,7 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
             On Error GoTo AlignmentDone
 
             If Not co Is Nothing Then
-                shp.Placement = xlFreeFloating
+                shp.Placement = xlMove
                 shp.Left = co.Left + co.Width + 10
                 shp.Width = co.Width * 1.65
 
