@@ -565,10 +565,16 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
             If header <> "" And IsLikelySubjectGradeColumn(header) Then
                 Dim schemeKey As String
                 Dim subjectName As String
-                schemeKey = GetGradeSchemeKey(wsSrc, c, header)
                 subjectName = StripGradeHeaderSuffix(header)
+                If UCase$(GetLevelMode(levelCode)) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+                    schemeKey = GetLegacySchemeFromHeader(header)
+                    If schemeKey = "" Then schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                Else
+                    schemeKey = GetGradeSchemeKey(wsSrc, c, header)
+                End If
 
-                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
+                If schemeKey <> "" And Not IsExcludedSecSubject(subjectName) _
+                   And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
@@ -716,7 +722,8 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                     schemeKey = GetGradeSchemeKey(wsSrc, c, header)
                 End If
                 subjectName = StripGradeHeaderSuffix(header)
-                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
+                If schemeKey <> "" And Not IsExcludedSecSubject(subjectName) _
+                   And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
@@ -1269,7 +1276,8 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                     schemeKey = GetGradeSchemeKey(wsSrc, c, header)
                 End If
                 subjectName = StripGradeHeaderSuffix(header)
-                If schemeKey <> "" And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
+                If schemeKey <> "" And Not IsExcludedSecSubject(subjectName) _
+                   And Not SubjectAlreadyAdded(subjectNames, subjCount, subjectName) Then
                     subjCount = subjCount + 1
                     ReDim Preserve subjectCols(1 To subjCount)
                     ReDim Preserve subjectNames(1 To subjCount)
@@ -2362,6 +2370,49 @@ Private Function StripGradeHeaderSuffix(ByVal header As String) As String
     StripGradeHeaderSuffix = h
 End Function
 
+Private Function IsExcludedSecSubject(ByVal subjectName As String) As Boolean
+    Dim ws As Worksheet
+    Dim r As Long
+    Dim subjectKey As String, excludedKey As String
+
+    subjectKey = NormalizeSecSubjectKey(subjectName)
+    If subjectKey = "" Then Exit Function
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    ' One excluded subject per cell in Settings!V2:V100.
+    For r = 2 To 100
+        excludedKey = NormalizeSecSubjectKey(CStr(ws.Cells(r, "V").value))
+        If excludedKey <> "" And excludedKey = subjectKey Then
+            IsExcludedSecSubject = True
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function NormalizeSecSubjectKey(ByVal subjectName As String) As String
+    Dim s As String
+    Dim suffix As Variant
+
+    s = Trim$(subjectName)
+    If UCase$(Right$(s, 7)) = "(GRADE)" Then s = Trim$(Left$(s, Len(s) - 7))
+    If UCase$(Right$(s, 7)) = "(SCORE)" Then s = Trim$(Left$(s, Len(s) - 7))
+    s = UCase$(Replace(Trim$(s), " ", ""))
+
+    For Each suffix In Array("-G1", "-G2", "-G3", "-N(T)", "-N(A)", _
+                             "-NT", "-NA", "-EX", "-O")
+        If Right$(s, Len(CStr(suffix))) = CStr(suffix) Then
+            s = Trim$(Left$(s, Len(s) - Len(CStr(suffix))))
+            Exit For
+        End If
+    Next suffix
+
+    NormalizeSecSubjectKey = s
+End Function
+
 Private Function GetGradeSchemeKey(ByVal ws As Worksheet, ByVal gradeCol As Long, ByVal header As String) As String
     Dim keyFromHeader As String
 
@@ -2384,6 +2435,8 @@ Private Function InferSchemeFromHeader(ByVal header As String) As String
         InferSchemeFromHeader = "G2"
     ElseIf InStr(1, h, "- G3", vbTextCompare) > 0 Then
         InferSchemeFromHeader = "G3"
+    Else
+        InferSchemeFromHeader = GetLegacySchemeFromHeader(header)
     End If
 End Function
 
