@@ -191,6 +191,8 @@ Private Function IsGeneratedResultSheet(ByVal ws As Worksheet) As Boolean
         IsGeneratedResultSheet = True
     ElseIf Left$(upperName, Len("SEC_CORREL_")) = "SEC_CORREL_" Then
         IsGeneratedResultSheet = True
+    ElseIf upperName = "SUMMARY" Then
+        IsGeneratedResultSheet = True
     ElseIf upperName = "PHYLOGS" Then
         IsGeneratedResultSheet = True
     ElseIf IsSubjectAnalysisSheetName(upperName) Then
