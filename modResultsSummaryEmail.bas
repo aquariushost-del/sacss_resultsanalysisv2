@@ -23,12 +23,13 @@ Option Explicit
 ' OPTIONAL SUBJECT DISPLAY NAMES (Settings!T2:U100)
 '   T = staging subject name/header; U = email display name
 '
-' MANAGEMENT EMAIL THRESHOLDS (Settings!S1:S6)
+' MANAGEMENT EMAIL CONFIGURATION (Settings!S1:S7)
 '   S2  MinimumCandidature=10
 '   S3  ConcernBelow=70%
 '   S4  MonitorBelow=80%
 '   S5  StrongPassAtLeast=95%
 '   S6  StrongDistinctionAtLeast=40%
+'   S7  PrelimSummaryMode=ASK   (ASK / LEVEL / STREAM)
 '============================================================
 
 Private Type tEmailSubject
@@ -130,6 +131,7 @@ Private Const MGMT_CONCERN_CELL As String = "S3"
 Private Const MGMT_MONITOR_CELL As String = "S4"
 Private Const MGMT_STRONG_PASS_CELL As String = "S5"
 Private Const MGMT_STRONG_DIST_CELL As String = "S6"
+Private Const MGMT_PRELIM_MODE_CELL As String = "S7"
 
 Private gDraftAllLevels As Boolean
 Private gAllLevelSheets As Collection
@@ -981,10 +983,13 @@ End Function
 Private Sub DraftAllLevelsManagementSummary()
     Dim summaries() As tEmailLevelSummary
     Dim summaryCount As Long
+    Dim streamSummaries() As tEmailLevelSummary
+    Dim streamSummaryCount As Long
     Dim subjectResults() As tEmailSubjectResult
     Dim subjectResultCount As Long
     Dim config As tEmailManagementConfig
     Dim htmlBody As String
+    Dim summaryMode As String
 
     If gAllLevelSheets Is Nothing Then Exit Sub
     If gAllLevelSheets.count = 0 Then Exit Sub
@@ -997,8 +1002,23 @@ Private Sub DraftAllLevelsManagementSummary()
     End If
 
     SortLevelSummaries summaries, summaryCount
-    htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
-                                       config, gSelectedExamLabel, gSelectedYear)
+    summaryMode = ResolvePrelimManagementSummaryMode(gSelectedExamLabel)
+    If summaryMode = "" Then Exit Sub
+
+    If summaryMode = "STREAM" Then
+        BuildPrelimStreamSummaries gAllLevelSheets, streamSummaries, streamSummaryCount
+        If streamSummaryCount = 0 Then
+            MsgBox "No EX, NA or NT student groups were found in the matching AtRisk sheets." & vbCrLf & _
+                   "Check Settings column D:E and rebuild the AtRisk summaries.", _
+                   vbExclamation, "PRELIM Stream Breakdown"
+            Exit Sub
+        End If
+        htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
+                                           config, gSelectedExamLabel, gSelectedYear, "Stream")
+    Else
+        htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
+                                           config, gSelectedExamLabel, gSelectedYear, "Level")
+    End If
     CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
 End Sub
 
@@ -1101,27 +1121,156 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
             If attemptedCount > 0 Or passedCount > 0 Or failedCount > 0 Then
                 If Not seen.Exists(keyText) Then
                     seen.Add keyText, True
-                    summary.ValidStudentCount = summary.ValidStudentCount + 1
-                    summary.DistinctionStudentCount = summary.DistinctionStudentCount + 1
-                    Select Case failedCount
-                        Case 0: summary.PassAllStudentCount = summary.PassAllStudentCount + 1
-                        Case 1: summary.FailOneStudentCount = summary.FailOneStudentCount + 1
-                        Case 2: summary.FailTwoStudentCount = summary.FailTwoStudentCount + 1
-                        Case Else: summary.FailThreePlusStudentCount = summary.FailThreePlusStudentCount + 1
-                    End Select
-                    Select Case distinctionCount
-                        Case 0: summary.NoDistinctionStudentCount = summary.NoDistinctionStudentCount + 1
-                        Case 1: summary.OneDistinctionStudentCount = summary.OneDistinctionStudentCount + 1
-                        Case 2: summary.TwoDistinctionStudentCount = summary.TwoDistinctionStudentCount + 1
-                        Case 3: summary.ThreeDistinctionStudentCount = summary.ThreeDistinctionStudentCount + 1
-                        Case 4: summary.FourDistinctionStudentCount = summary.FourDistinctionStudentCount + 1
-                        Case Else: summary.FivePlusDistinctionStudentCount = summary.FivePlusDistinctionStudentCount + 1
-                    End Select
+                    AddManagementStudentOutcome summary, failedCount, distinctionCount
                 End If
             End If
         End If
     Next r
 End Sub
+
+Private Sub AddManagementStudentOutcome(ByRef summary As tEmailLevelSummary, _
+                                        ByVal failedCount As Long, _
+                                        ByVal distinctionCount As Long)
+    summary.ValidStudentCount = summary.ValidStudentCount + 1
+    summary.DistinctionStudentCount = summary.DistinctionStudentCount + 1
+
+    Select Case failedCount
+        Case 0: summary.PassAllStudentCount = summary.PassAllStudentCount + 1
+        Case 1: summary.FailOneStudentCount = summary.FailOneStudentCount + 1
+        Case 2: summary.FailTwoStudentCount = summary.FailTwoStudentCount + 1
+        Case Else: summary.FailThreePlusStudentCount = summary.FailThreePlusStudentCount + 1
+    End Select
+
+    Select Case distinctionCount
+        Case 0: summary.NoDistinctionStudentCount = summary.NoDistinctionStudentCount + 1
+        Case 1: summary.OneDistinctionStudentCount = summary.OneDistinctionStudentCount + 1
+        Case 2: summary.TwoDistinctionStudentCount = summary.TwoDistinctionStudentCount + 1
+        Case 3: summary.ThreeDistinctionStudentCount = summary.ThreeDistinctionStudentCount + 1
+        Case 4: summary.FourDistinctionStudentCount = summary.FourDistinctionStudentCount + 1
+        Case Else: summary.FivePlusDistinctionStudentCount = summary.FivePlusDistinctionStudentCount + 1
+    End Select
+End Sub
+
+Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
+                                       ByRef summaries() As tEmailLevelSummary, _
+                                       ByRef summaryCount As Long)
+    Dim sourceWs As Worksheet, atRiskWs As Worksheet
+    Dim assessmentName As String, yearText As String, levelText As String
+    Dim expectedSheetName As String
+    Dim classCol As Long, regCol As Long, nameCol As Long, groupCol As Long
+    Dim attemptedCol As Long, passedCol As Long, failedCol As Long, distinctionCol As Long
+    Dim lastRow As Long, r As Long, i As Long, streamIndex As Long
+    Dim attemptedCount As Long, passedCount As Long, failedCount As Long, distinctionCount As Long
+    Dim classText As String, regText As String, nameText As String, keyText As String
+    Dim streamCode As String
+    Dim groupedCount As Long, unmappedCount As Long
+    Dim seen As Object
+
+    summaryCount = 0
+    If sourceSheets Is Nothing Then Exit Sub
+
+    ReDim summaries(1 To 3)
+    summaries(1).LevelText = "EX"
+    summaries(2).LevelText = "NA"
+    summaries(3).LevelText = "NT"
+
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+
+    For i = 1 To sourceSheets.count
+        Set sourceWs = sourceSheets(i)
+        assessmentName = "": yearText = "": levelText = ""
+        GetSourceLabels sourceWs, assessmentName, yearText, levelText
+        expectedSheetName = BuildManagementAtRiskSheetName(levelText, assessmentName, yearText)
+
+        Set atRiskWs = Nothing
+        On Error Resume Next
+        Set atRiskWs = ThisWorkbook.Worksheets(expectedSheetName)
+        On Error GoTo 0
+        If atRiskWs Is Nothing Then
+            Err.Raise vbObjectError + 2111, "BuildPrelimStreamSummaries", _
+                      "Missing '" & expectedSheetName & "'. Run BuildSec_AtRiskSummary before drafting the PRELIM stream email."
+        End If
+
+        classCol = FindEmailHeaderAtRow(atRiskWs, 4, "Class")
+        regCol = FindEmailHeaderAtRow(atRiskWs, 4, "RegNo")
+        nameCol = FindEmailHeaderAtRow(atRiskWs, 4, "Name")
+        attemptedCol = FindEmailHeaderAtRow(atRiskWs, 4, "Subjects Attempted")
+        passedCol = FindEmailHeaderAtRow(atRiskWs, 4, "Subjects Passed")
+        failedCol = FindEmailHeaderAtRow(atRiskWs, 4, "Subjects Failed")
+        groupCol = FindEmailHeaderAtRow(atRiskWs, 4, "Group")
+        distinctionCol = FindEmailHeaderAtRow(atRiskWs, 4, "Distinctions")
+        If classCol = 0 Or nameCol = 0 Or attemptedCol = 0 Or passedCol = 0 _
+           Or failedCol = 0 Or groupCol = 0 Or distinctionCol = 0 Then
+            Err.Raise vbObjectError + 2112, "BuildPrelimStreamSummaries", _
+                      "The sheet '" & expectedSheetName & "' does not have the expected AtRisk columns. Rebuild it with BuildSec_AtRiskSummary."
+        End If
+
+        lastRow = atRiskWs.Cells(atRiskWs.Rows.count, nameCol).End(xlUp).Row
+        For r = 5 To lastRow
+            classText = Trim$(CStr(atRiskWs.Cells(r, classCol).value))
+            nameText = Trim$(CStr(atRiskWs.Cells(r, nameCol).value))
+            regText = ""
+            If regCol > 0 Then regText = Trim$(CStr(atRiskWs.Cells(r, regCol).value))
+
+            attemptedCount = EmailLongValue(atRiskWs.Cells(r, attemptedCol).value)
+            passedCount = EmailLongValue(atRiskWs.Cells(r, passedCol).value)
+            failedCount = EmailLongValue(atRiskWs.Cells(r, failedCol).value)
+            distinctionCount = EmailLongValue(atRiskWs.Cells(r, distinctionCol).value)
+
+            If nameText <> "" And (attemptedCount > 0 Or passedCount > 0 Or failedCount > 0) Then
+                streamCode = NormalizeManagementStream(CStr(atRiskWs.Cells(r, groupCol).value))
+                streamIndex = ManagementStreamIndex(streamCode)
+                If streamIndex = 0 Then
+                    unmappedCount = unmappedCount + 1
+                Else
+                    If regText <> "" Then
+                        keyText = atRiskWs.Name & "|" & classText & "|REG|" & regText
+                    Else
+                        keyText = atRiskWs.Name & "|" & classText & "|NAME|" & nameText
+                    End If
+                    If Not seen.Exists(keyText) Then
+                        seen.Add keyText, True
+                        AddManagementStudentOutcome summaries(streamIndex), failedCount, distinctionCount
+                        groupedCount = groupedCount + 1
+                    End If
+                End If
+            End If
+        Next r
+    Next i
+
+    If unmappedCount > 0 Then
+        Err.Raise vbObjectError + 2113, "BuildPrelimStreamSummaries", _
+                  CStr(unmappedCount) & " student(s) with valid results do not have an EX, NA or NT group." & vbCrLf & _
+                  "Complete the class-to-stream mappings in Settings column D:E and rebuild the AtRisk summaries."
+    End If
+
+    If groupedCount > 0 Then summaryCount = 3
+End Sub
+
+Private Function NormalizeManagementStream(ByVal rawGroup As String) As String
+    Dim g As String
+    g = UCase$(Trim$(rawGroup))
+    g = Replace(g, " ", "")
+    g = Replace(g, "-", "")
+    g = Replace(g, "(", "")
+    g = Replace(g, ")", "")
+    g = Replace(g, ".", "")
+
+    Select Case g
+        Case "EX", "EXPRESS", "G3": NormalizeManagementStream = "EX"
+        Case "NA", "NORMALACADEMIC", "G2": NormalizeManagementStream = "NA"
+        Case "NT", "NORMALTECHNICAL", "G1": NormalizeManagementStream = "NT"
+    End Select
+End Function
+
+Private Function ManagementStreamIndex(ByVal streamCode As String) As Long
+    Select Case UCase$(Trim$(streamCode))
+        Case "EX": ManagementStreamIndex = 1
+        Case "NA": ManagementStreamIndex = 2
+        Case "NT": ManagementStreamIndex = 3
+    End Select
+End Function
 
 Private Function BuildManagementAtRiskSheetName(ByVal levelText As String, _
                                                 ByVal assessmentName As String, _
@@ -1294,7 +1443,8 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
                                          ByVal subjectResultCount As Long, _
                                          ByRef config As tEmailManagementConfig, _
                                          ByVal assessmentName As String, _
-                                         ByVal yearText As String) As String
+                                         ByVal yearText As String, _
+                                         ByVal breakdownLabel As String) As String
     Dim html As String
     Dim schoolName As String, preparedBy As String, embargoText As String
 
@@ -1313,14 +1463,14 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
                      "<div style='font-size:13px;line-height:19px;color:#60788e;margin-top:8px;'>Please find attached the detailed " & HtmlEncode(assessmentName) & " Results Analysis. A summary of the key results is provided below.</div></td></tr>"
     AppendHtml html, SpacerRow(10)
 
-    AppendHtml html, CardStart("1. Student Outcomes by Level", "")
-    AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount)
+    AppendHtml html, CardStart("1. Student Outcomes by " & breakdownLabel, "")
+    AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount, breakdownLabel)
     AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Failure figures are cumulative: a student who failed three subjects appears in the Failed &ge;1, &ge;2 and &ge;3 columns. Values show percentage (number of students), regardless of whether subjects are taken at G1, G2 or G3.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
-    AppendHtml html, CardStart("2. Student Distinction Profile by Level", "")
-    AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount)
+    AppendHtml html, CardStart("2. Student Distinction Profile by " & breakdownLabel, "")
+    AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount, breakdownLabel)
     AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3. Values show percentage (number of students). Distinction = A1/A2 for G3 or EX/O-Level; 1/2 for G2 or NA/N(A); and A only for G1 or NT/N(T).</div>"
     AppendHtml html, CardEnd()
 
@@ -1348,11 +1498,12 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 End Function
 
 Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
-                                                     ByVal summaryCount As Long) As String
+                                                     ByVal summaryCount As Long, _
+                                                     ByVal breakdownLabel As String) As String
     Dim html As String, i As Long
     Dim atLeastOneFail As Long, atLeastTwoFails As Long, atLeastThreeFails As Long
 
-    html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
+    html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd(breakdownLabel) & _
            HeaderTd("Pass All Subjects") & HeaderTdHtml("Failed &ge;1 Subject") & _
            HeaderTdHtml("Failed &ge;2 Subjects") & HeaderTdHtml("Failed &ge;3 Subjects") & "</tr>"
 
@@ -1374,12 +1525,13 @@ Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmail
 End Function
 
 Private Function BuildManagementDistinctionOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
-                                                          ByVal summaryCount As Long) As String
+                                                          ByVal summaryCount As Long, _
+                                                          ByVal breakdownLabel As String) As String
     Dim html As String, i As Long
     Dim atLeastOne As Long, atLeastTwo As Long, atLeastThree As Long
     Dim atLeastFour As Long, atLeastFive As Long
 
-    html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
+    html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd(breakdownLabel) & _
            HeaderTdHtml("&ge;1 Distinction") & HeaderTdHtml("&ge;2 Distinctions") & _
            HeaderTdHtml("&ge;3 Distinctions") & HeaderTdHtml("&ge;4 Distinctions") & _
            HeaderTdHtml("&ge;5 Distinctions") & "</tr>"
@@ -2273,16 +2425,58 @@ End Sub
 
 Private Sub EnsureEmailManagementConfigSection(ByVal ws As Worksheet)
     On Error Resume Next
-    If Trim$(CStr(ws.Range("S1").value)) = "" Then ws.Range("S1").value = "Management email thresholds"
+    If Trim$(CStr(ws.Range("S1").value)) = "" Then ws.Range("S1").value = "Management email configuration"
     If Trim$(CStr(ws.Range(MGMT_MIN_N_CELL).value)) = "" Then ws.Range(MGMT_MIN_N_CELL).value = "MinimumCandidature=10"
     If Trim$(CStr(ws.Range(MGMT_CONCERN_CELL).value)) = "" Then ws.Range(MGMT_CONCERN_CELL).value = "ConcernBelow=70%"
     If Trim$(CStr(ws.Range(MGMT_MONITOR_CELL).value)) = "" Then ws.Range(MGMT_MONITOR_CELL).value = "MonitorBelow=80%"
     If Trim$(CStr(ws.Range(MGMT_STRONG_PASS_CELL).value)) = "" Then ws.Range(MGMT_STRONG_PASS_CELL).value = "StrongPassAtLeast=95%"
     If Trim$(CStr(ws.Range(MGMT_STRONG_DIST_CELL).value)) = "" Then ws.Range(MGMT_STRONG_DIST_CELL).value = "StrongDistinctionAtLeast=40%"
+    If Trim$(CStr(ws.Range(MGMT_PRELIM_MODE_CELL).value)) = "" Then ws.Range(MGMT_PRELIM_MODE_CELL).value = "PrelimSummaryMode=ASK"
     ws.Range("S1").Font.Bold = True
     ws.Columns("S").AutoFit
     On Error GoTo 0
 End Sub
+
+Private Function ResolvePrelimManagementSummaryMode(ByVal assessmentName As String) As String
+    Dim ws As Worksheet
+    Dim rawValue As String, modeValue As String
+    Dim equalsPos As Long, answer As VbMsgBoxResult
+
+    If CanonicalExamKey(assessmentName) <> "PRELIM" Then
+        ResolvePrelimManagementSummaryMode = "LEVEL"
+        Exit Function
+    End If
+
+    modeValue = "ASK"
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(SETTINGS_SHEET)
+    On Error GoTo 0
+    If Not ws Is Nothing Then
+        EnsureEmailManagementConfigSection ws
+        rawValue = Trim$(CStr(ws.Range(MGMT_PRELIM_MODE_CELL).value))
+        equalsPos = InStrRev(rawValue, "=")
+        If equalsPos > 0 Then rawValue = Trim$(Mid$(rawValue, equalsPos + 1))
+        If rawValue <> "" Then modeValue = UCase$(rawValue)
+    End If
+
+    Select Case modeValue
+        Case "LEVEL"
+            ResolvePrelimManagementSummaryMode = "LEVEL"
+        Case "STREAM"
+            ResolvePrelimManagementSummaryMode = "STREAM"
+        Case Else
+            answer = MsgBox("Choose the PRELIM management-summary version:" & vbCrLf & vbCrLf & _
+                            "Yes  - EX / NA / NT stream breakdown" & vbCrLf & _
+                            "No   - existing Sec-level breakdown" & vbCrLf & _
+                            "Cancel - stop drafting", _
+                            vbYesNoCancel + vbQuestion, "PRELIM Summary Version")
+            Select Case answer
+                Case vbYes: ResolvePrelimManagementSummaryMode = "STREAM"
+                Case vbNo: ResolvePrelimManagementSummaryMode = "LEVEL"
+                Case Else: ResolvePrelimManagementSummaryMode = ""
+            End Select
+    End Select
+End Function
 
 Private Function ReadManagementConfigNumber(ByVal rawValue As Variant, _
                                             ByVal defaultValue As Double, _
