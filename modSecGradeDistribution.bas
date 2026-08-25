@@ -1230,7 +1230,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim header As String, schemeKey As String
     Dim className As String, studentName As String, regNo As String
     Dim gradeStr As String
-    Dim attemptedCount As Long, passCount As Long, failCount As Long
+    Dim attemptedCount As Long, passCount As Long, failCount As Long, distinctionCount As Long
     Dim outRow As Long
     Dim riskBand As String, failedSubjects As String, attemptedSubjects As String
     Dim abSubjects As String
@@ -1334,6 +1334,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
         attemptedCount = 0
         passCount = 0
         failCount = 0
+        distinctionCount = 0
         failedSubjects = ""
         attemptedSubjects = ""
         vrSubjects = ""
@@ -1406,6 +1407,9 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 Else
                     passCount = passCount + 1
                 End If
+                If IsDistinctionGradeByScheme(gradeStr, subjectSchemeKeys(i)) Then
+                    distinctionCount = distinctionCount + 1
+                End If
             End If
 NextSubject:
         Next i
@@ -1444,6 +1448,7 @@ NextSubject:
             wsOut.Cells(outRow, 14).value = abSubjects
             displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
             wsOut.Cells(outRow, 15).value = displayGroup
+            wsOut.Cells(outRow, 16).value = distinctionCount
 
             If riskBand = "AT RISK" Then
                 wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 9)).Interior.Color = RGB(255, 230, 230)
@@ -1721,6 +1726,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Cells(4, 13).value = "VR/MC Subjects"
     wsOut.Cells(4, 14).value = "AB Subjects"
     wsOut.Cells(4, 15).value = "Group"
+    wsOut.Cells(4, 16).value = "Distinctions"
     wsOut.Rows(4).Font.Bold = True
 End Sub
 
@@ -1729,14 +1735,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     If lastRow >= 5 Then
-        Set sortRange = wsOut.Range("A4:O" & lastRow)
+        Set sortRange = wsOut.Range("A4:P" & lastRow)
         sortRange.Sort Key1:=wsOut.Range("J5"), Order1:=xlAscending, _
                        Key2:=wsOut.Range("G5"), Order2:=xlDescending, _
                        Key3:=wsOut.Range("D5"), Order3:=xlAscending, _
                        Header:=xlYes
     End If
 
-    wsOut.Columns("A:O").AutoFit
+    wsOut.Columns("A:P").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 15
     wsOut.Columns("C").ColumnWidth = 5
@@ -1756,12 +1762,14 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("N").WrapText = True
     wsOut.Columns("O").ColumnWidth = 10
     wsOut.Columns("O").HorizontalAlignment = xlCenter
+    wsOut.Columns("P").ColumnWidth = 10
+    wsOut.Columns("P").HorizontalAlignment = xlCenter
     wsOut.Columns("J").EntireColumn.Hidden = True
     wsOut.Range("E4:G4").WrapText = True
-    wsOut.Range("A4:O4").VerticalAlignment = xlCenter
+    wsOut.Range("A4:P4").VerticalAlignment = xlCenter
 
     If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:O" & lastRow)
+        Set rngTable = wsOut.Range("A4:P" & lastRow)
         With rngTable.Borders
             .LineStyle = xlContinuous
             .Color = RGB(200, 200, 200)
@@ -2875,6 +2883,20 @@ Private Function IsFailGradeByScheme(ByVal gradeStr As String, ByVal schemeKey A
             IsFailGradeByScheme = (g = "E")
         Case Else
             IsFailGradeByScheme = False
+    End Select
+End Function
+
+Private Function IsDistinctionGradeByScheme(ByVal gradeStr As String, ByVal schemeKey As String) As Boolean
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            IsDistinctionGradeByScheme = (g = "A1" Or g = "A2")
+        Case "G2"
+            IsDistinctionGradeByScheme = (g = "1" Or g = "2")
+        Case "G1"
+            IsDistinctionGradeByScheme = (g = "A")
     End Select
 End Function
 
