@@ -1315,7 +1315,7 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, CardStart("1. Student Outcomes by Level", "")
     AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Each student is counted once, according to the number of subjects failed, regardless of whether individual subjects are taken at G1, G2 or G3. Values show percentage (number of students).</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Failure figures are cumulative: a student who failed three subjects appears in the Failed &ge;1, &ge;2 and &ge;3 columns. Values show percentage (number of students), regardless of whether subjects are taken at G1, G2 or G3.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
@@ -1350,17 +1350,23 @@ End Function
 Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
                                                      ByVal summaryCount As Long) As String
     Dim html As String, i As Long
+    Dim atLeastOneFail As Long, atLeastTwoFails As Long, atLeastThreeFails As Long
+
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
-           HeaderTd("Pass All Subjects") & HeaderTd("Fail 1 Subject") & _
-           HeaderTd("Fail 2 Subjects") & HeaderTd("Fail >=3 Subjects") & "</tr>"
+           HeaderTd("Pass All Subjects") & HeaderTdHtml("Failed &ge;1 Subject") & _
+           HeaderTdHtml("Failed &ge;2 Subjects") & HeaderTdHtml("Failed &ge;3 Subjects") & "</tr>"
 
     For i = 1 To summaryCount
         If summaries(i).ValidStudentCount > 0 Then
+            atLeastThreeFails = summaries(i).FailThreePlusStudentCount
+            atLeastTwoFails = summaries(i).FailTwoStudentCount + atLeastThreeFails
+            atLeastOneFail = summaries(i).FailOneStudentCount + atLeastTwoFails
+
             html = html & "<tr>" & TextTd(ManagementLevelLabel(summaries(i).LevelText), "#1f4e79") & _
                    OutcomeTd(summaries(i).PassAllStudentCount, summaries(i).ValidStudentCount, "#548235", "#edf6e8") & _
-                   OutcomeTd(summaries(i).FailOneStudentCount, summaries(i).ValidStudentCount, "#8a6410", "#fffbed") & _
-                   OutcomeTd(summaries(i).FailTwoStudentCount, summaries(i).ValidStudentCount, "#b36b00", "#fff3d6") & _
-                   OutcomeTd(summaries(i).FailThreePlusStudentCount, summaries(i).ValidStudentCount, "#c00000", "#fff0f0") & "</tr>"
+                   OutcomeTd(atLeastOneFail, summaries(i).ValidStudentCount, "#8a6410", "#fffbed") & _
+                   OutcomeTd(atLeastTwoFails, summaries(i).ValidStudentCount, "#b36b00", "#fff3d6") & _
+                   OutcomeTd(atLeastThreeFails, summaries(i).ValidStudentCount, "#c00000", "#fff0f0") & "</tr>"
         End If
     Next i
 
@@ -1374,9 +1380,9 @@ Private Function BuildManagementDistinctionOutcomesTable(ByRef summaries() As tE
     Dim atLeastFour As Long, atLeastFive As Long
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
-           HeaderTd("At least 1 Distinction") & HeaderTd("At least 2 Distinctions") & _
-           HeaderTd("At least 3 Distinctions") & HeaderTd("At least 4 Distinctions") & _
-           HeaderTd("At least 5 Distinctions") & "</tr>"
+           HeaderTdHtml("&ge;1 Distinction") & HeaderTdHtml("&ge;2 Distinctions") & _
+           HeaderTdHtml("&ge;3 Distinctions") & HeaderTdHtml("&ge;4 Distinctions") & _
+           HeaderTdHtml("&ge;5 Distinctions") & "</tr>"
 
     For i = 1 To summaryCount
         If summaries(i).DistinctionStudentCount > 0 Then
@@ -2056,6 +2062,10 @@ End Function
 
 Private Function HeaderTd(ByVal valueText As String) As String
     HeaderTd = "<td style='padding:7px 8px;border-bottom:1px solid #d7e4ef;color:#385a78;font-weight:bold;'>" & HtmlEncode(valueText) & "</td>"
+End Function
+
+Private Function HeaderTdHtml(ByVal trustedHtml As String) As String
+    HeaderTdHtml = "<td style='padding:7px 8px;border-bottom:1px solid #d7e4ef;color:#385a78;font-weight:bold;'>" & trustedHtml & "</td>"
 End Function
 
 Private Function TextTd(ByVal valueText As String, ByVal colorText As String) As String
