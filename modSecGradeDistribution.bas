@@ -1823,6 +1823,8 @@ Public Sub BuildSecSubjectGradeDistribution( _
     Dim meanValue As Double
 
     Dim colNo As Long, colPctPass As Long, colPctFail As Long, colPctTop As Long, colMean As Long
+    Dim colTableLast As Long, chartStartCol As Long
+    Dim showMean As Boolean
 
     Dim rngTable As Range
     Dim rngHeader As Range, rngData As Range
@@ -1854,6 +1856,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
     End If
 
     numBands = UBound(gradeLabels)
+    showMean = (UCase$(Trim$(schemeKey)) <> "G1")
     InitPastelPalette pastelColors
 
     lastRow = wsSrc.Cells(wsSrc.Rows.count, srcClassCol).End(xlUp).Row
@@ -1920,7 +1923,14 @@ Public Sub BuildSecSubjectGradeDistribution( _
     colPctPass = destColFirst + numBands + 2
     colPctFail = destColFirst + numBands + 3
     colPctTop = destColFirst + numBands + 4
-    colMean = destColFirst + numBands + 5
+    If showMean Then
+        colMean = destColFirst + numBands + 5
+        colTableLast = colMean
+    Else
+        colMean = 0
+        colTableLast = colPctTop
+    End If
+    chartStartCol = colTableLast + 2
 
     With wsDest
         .Cells(destRowHeader, destColFirst).value = "Class"
@@ -1933,7 +1943,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
         .Cells(destRowHeader, colPctPass).value = pctPassLabel
         .Cells(destRowHeader, colPctFail).value = pctFailLabel
         .Cells(destRowHeader, colPctTop).value = pctTopLabel
-        .Cells(destRowHeader, colMean).value = meanLabel
+        If showMean Then .Cells(destRowHeader, colMean).value = meanLabel
         .Rows(destRowHeader).Font.Bold = True
     End With
 
@@ -1962,7 +1972,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
             If j <= topMaxIdx Then topCount = topCount + countsArr(j)
         Next j
 
-        If total > 0 Then
+        If total > 0 And showMean Then
             meanValue = ComputeMeanBand(countsArr)
         Else
             meanValue = 0
@@ -1981,12 +1991,12 @@ Public Sub BuildSecSubjectGradeDistribution( _
                 .Cells(rowPtr, colPctPass).value = Round(passCount * 100# / total, 1)
                 .Cells(rowPtr, colPctFail).value = Round(failCount * 100# / total, 1)
                 .Cells(rowPtr, colPctTop).value = Round(topCount * 100# / total, 1)
-                .Cells(rowPtr, colMean).value = Round(meanValue, 1)
+                If showMean Then .Cells(rowPtr, colMean).value = Round(meanValue, 1)
             Else
                 .Cells(rowPtr, colPctPass).ClearContents
                 .Cells(rowPtr, colPctFail).ClearContents
                 .Cells(rowPtr, colPctTop).ClearContents
-                .Cells(rowPtr, colMean).ClearContents
+                If showMean Then .Cells(rowPtr, colMean).ClearContents
             End If
         End With
 
@@ -2010,7 +2020,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
         If j <= topMaxIdx Then topCount = topCount + totalArr(j)
     Next j
 
-    If total > 0 Then
+    If total > 0 And showMean Then
         ReDim countsArr(1 To numBands)
         For j = 1 To numBands
             countsArr(j) = totalArr(j)
@@ -2033,12 +2043,12 @@ Public Sub BuildSecSubjectGradeDistribution( _
             .Cells(cohortRow, colPctPass).value = Round(passCount * 100# / total, 1)
             .Cells(cohortRow, colPctFail).value = Round(failCount * 100# / total, 1)
             .Cells(cohortRow, colPctTop).value = Round(topCount * 100# / total, 1)
-            .Cells(cohortRow, colMean).value = Round(meanValue, 1)
+            If showMean Then .Cells(cohortRow, colMean).value = Round(meanValue, 1)
         Else
             .Cells(cohortRow, colPctPass).ClearContents
             .Cells(cohortRow, colPctFail).ClearContents
             .Cells(cohortRow, colPctTop).ClearContents
-            .Cells(cohortRow, colMean).ClearContents
+            If showMean Then .Cells(cohortRow, colMean).ClearContents
         End If
     End With
 
@@ -2046,7 +2056,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
                     colPctPass, colPctFail, colPctTop, colMean
 
     Set rngTable = wsDest.Range(wsDest.Cells(destRowHeader, destColFirst), _
-                                wsDest.Cells(cohortRow, colMean))
+                                wsDest.Cells(cohortRow, colTableLast))
 
     With rngTable.Borders
         .LineStyle = xlContinuous
@@ -2056,14 +2066,16 @@ Public Sub BuildSecSubjectGradeDistribution( _
 
     wsDest.Range(wsDest.Cells(destRowHeader + 1, colPctPass), _
                  wsDest.Cells(cohortRow, colPctTop)).NumberFormat = "0.0"
-    wsDest.Range(wsDest.Cells(destRowHeader + 1, colMean), _
-                 wsDest.Cells(cohortRow, colMean)).NumberFormat = "0.0"
+    If showMean Then
+        wsDest.Range(wsDest.Cells(destRowHeader + 1, colMean), _
+                     wsDest.Cells(cohortRow, colMean)).NumberFormat = "0.0"
+    End If
 
-    wsDest.Columns(destColFirst + 1).Resize(, colMean - destColFirst).AutoFit
+    wsDest.Columns(destColFirst + 1).Resize(, colTableLast - destColFirst).AutoFit
     wsDest.Columns(destColFirst).ColumnWidth = 15
 
     Set rngCohortRow = wsDest.Range(wsDest.Cells(cohortRow, destColFirst), _
-                                    wsDest.Cells(cohortRow, colMean))
+                                    wsDest.Cells(cohortRow, colTableLast))
     rngCohortRow.Interior.Color = RGB(255, 242, 204)
     rngCohortRow.Font.Bold = True
 
@@ -2086,16 +2098,16 @@ Public Sub BuildSecSubjectGradeDistribution( _
     ' objects so a rendering error cannot make the next subject reuse it.
     outEndRow = visualEndRow
 
-    leftPos = wsDest.Columns(colMean + 2).Left
+    leftPos = wsDest.Columns(chartStartCol).Left
     ' Strict alignment rule: the chart and narrative panel start at the top
     ' of the table header, not at the separate subject-title row.
     topPos = ExactSecRowTop(wsDest, destRowHeader)
-    chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
+    chartWidth = wsDest.Columns(chartStartCol).Resize(, 6).Width
     chartHeight = ExactSecRowsHeight(wsDest, destRowHeader, visualEndRow)
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
     co.Name = "SecChart_R" & CStr(destRowHeader) & _
-              "_E" & CStr(visualEndRow) & "_C" & CStr(colMean + 2)
+              "_E" & CStr(visualEndRow) & "_C" & CStr(chartStartCol)
     co.Placement = xlMove
     Set ch = co.Chart
 
@@ -2382,7 +2394,7 @@ Private Sub ColourSubjectRow(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal 
         ws.Cells(rowNum, colPctTop).Font.Color = RGB(0, 0, 0)
     End If
 
-    ws.Cells(rowNum, colMean).Font.Color = RGB(0, 0, 0)
+    If colMean > 0 Then ws.Cells(rowNum, colMean).Font.Color = RGB(0, 0, 0)
 End Sub
 
 '---------------------------------------------------------
@@ -2447,12 +2459,12 @@ Private Function InitGradeScheme(ByVal schemeKey As String, _
 
             passMaxIdx = 4
             failMinIdx = 5
-            topMaxIdx = 2
+            topMaxIdx = 1
 
             pctPassLabel = "%A - D"
             pctFailLabel = "%E"
-            pctTopLabel = "%A - B"
-            meanLabel = "Mean"
+            pctTopLabel = "%A"
+            meanLabel = ""
 
         Case Else
             InitGradeScheme = False
