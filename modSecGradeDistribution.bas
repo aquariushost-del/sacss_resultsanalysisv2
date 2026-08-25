@@ -2046,15 +2046,17 @@ Public Sub BuildSecSubjectGradeDistribution( _
                                wsDest.Cells(cohortRow, destColFirst + numBands))
 
     ' The table is complete at this point. Report its final row before
-    ' creating any floating objects so a chart/panel formatting error can
-    ' never make the next subject overwrite this table while leaving the
-    ' earlier chart behind.
+    ' creating floating objects so a rendering error cannot make the next
+    ' subject reuse this block.
     outEndRow = cohortRow
 
     leftPos = wsDest.Columns(colMean + 2).Left
     topPos = wsDest.Rows(destRowHeader - 1).Top
     chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
-    chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 3).Height
+    ' Start at the title row and end exactly at the COHORT row. The previous
+    ' +3 formula included one extra worksheet row, making every chart a little
+    ' taller than its matching title-and-table block.
+    chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 2).Height
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
     co.Placement = xlMoveAndSize
