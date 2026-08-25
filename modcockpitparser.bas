@@ -62,10 +62,12 @@ Option Explicit
 ' FOOTERS:
 ' - Footer rows in source are excluded using prefixes from Settings!B10:B30.
 '
-' CLASS ? LEVELKEY MAPPING (SEC vs IP, etc):
+' CLASS MAPPING (SEC vs IP level, or legacy Sec 4/5 stream):
 ' - Put patterns in Settings!D2:E50, e.g.:
-'       D: ClassPattern (e.g. 3A, 3B, 3F, 3G)
-'       E: LevelKey (e.g. S3, Y3, S2, Y2)
+'       D: ClassPattern (e.g. 3A, 4E, 4N1)
+'       E: LevelKey (e.g. S3, Y3) or legacy stream (EX, NA, NT)
+' - EX/NA/NT rows are used by the SEC reports and are deliberately
+'   ignored by the parser's ClassPattern -> LevelKey lookup.
 '
 ' EXTRA SUBJECT NAMES (odd cases like "Maths 1", "Maths 2"):
 ' - Settings!B14 = comma-separated list, e.g.:
@@ -341,7 +343,8 @@ Private Function ReadSettings(ByRef cfg As tSettings) As Boolean
         Exit Function
     End If
     
-    ' Always refresh class?level mapping from Settings!D2:E50
+    ' Always refresh class-to-level mapping from Settings!D2:E50.
+    ' Sec 4/5 EX/NA/NT stream rows are skipped by InitClassLevelMap.
     InitClassLevelMap ws
     
     ' Grade?Point map (lazy-loaded on first use)
@@ -447,7 +450,9 @@ Private Function ReadExtraSubjects(ByVal ws As Worksheet) As Variant
 End Function
 
 Private Sub InitClassLevelMap(ByVal ws As Worksheet)
-    ' Reads Settings!D2:E50 as ClassPattern -> LevelKey
+    ' Reads Settings!D2:E50 as ClassPattern -> LevelKey.
+    ' EX/NA/NT entries belong to the legacy Sec 4/5 stream lookup used
+    ' by modSecGradeDistribution and must not become staging level keys.
     Dim rng As Range, r As Range
     Dim pattern As String, lvlKey As String
     
@@ -466,7 +471,7 @@ Private Sub InitClassLevelMap(ByVal ws As Worksheet)
                 pattern = CleanText(CStr(r.Cells(1, 1).value))  ' Col D
                 lvlKey = CleanText(CStr(r.Cells(1, 2).value))   ' Col E
             End If
-            If Len(pattern) > 0 And Len(lvlKey) > 0 Then
+            If Len(pattern) > 0 And Len(lvlKey) > 0 And Not IsLegacyStreamSetting(lvlKey) Then
                 pattern = UCase$(Replace(pattern, " ", "")) ' normalise key
                 AddClassLevelMapEntry pattern, lvlKey
             End If
@@ -475,6 +480,18 @@ Private Sub InitClassLevelMap(ByVal ws As Worksheet)
     
     gClassLevelMapLoaded = True
 End Sub
+
+Private Function IsLegacyStreamSetting(ByVal settingValue As String) As Boolean
+    Dim s As String
+    s = UCase$(Replace(Trim$(settingValue), " ", ""))
+    s = Replace(s, ".", "")
+    s = Replace(s, "(", "")
+    s = Replace(s, ")", "")
+
+    IsLegacyStreamSetting = (s = "EX" Or s = "EXPRESS" Or _
+                             s = "NA" Or s = "NORMALACADEMIC" Or _
+                             s = "NT" Or s = "NORMALTECHNICAL")
+End Function
 
 Private Sub AddClassLevelMapEntry(ByVal pattern As String, ByVal lvlKey As String)
     Dim entry As Variant
