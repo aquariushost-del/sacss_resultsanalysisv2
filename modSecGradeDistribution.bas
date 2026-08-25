@@ -644,6 +644,11 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
         End If
     Next i
 
+    ' Column AutoFit calls made while later subjects are built can move or
+    ' resize earlier floating objects in Excel for Mac. Snap every chart and
+    ' panel back to its encoded worksheet anchors after the sheet is complete.
+    RealignSecAnalysisObjects wsDest
+
     Exit Sub
 
 ErrHandler:
@@ -2059,7 +2064,9 @@ Public Sub BuildSecSubjectGradeDistribution( _
     chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 2).Height
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
-    co.Placement = xlMoveAndSize
+    co.Name = "SecChart_R" & CStr(destRowHeader - 1) & _
+              "_E" & CStr(cohortRow) & "_C" & CStr(colMean + 2)
+    co.Placement = xlFreeFloating
     Set ch = co.Chart
 
     With ch
@@ -2137,8 +2144,8 @@ Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
     End Select
 
     Set shp = ws.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, panelLeft, panelTop, panelWidth, panelHeight)
-    shp.Name = "FlagPanel_" & co.Name & "_" & ws.Index
-    shp.Placement = xlMoveAndSize
+    shp.Name = "FlagPanel_" & co.Name
+    shp.Placement = xlFreeFloating
 
     With shp
         .Fill.ForeColor.RGB = fillColor
@@ -2164,6 +2171,74 @@ PanelFail:
     ' A panel-formatting limitation in a particular Excel version must not
     ' abort the enclosing subject block or disturb the next table position.
 End Sub
+
+Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
+    Dim co As ChartObject
+    Dim shp As Shape
+    Dim titleRow As Long, endRow As Long, anchorCol As Long
+    Dim chartName As String
+
+    On Error GoTo AlignmentDone
+
+    For Each co In ws.ChartObjects
+        If ParseSecChartAnchor(co.Name, titleRow, endRow, anchorCol) Then
+            co.Placement = xlFreeFloating
+            co.Top = ws.Rows(titleRow).Top
+            co.Left = ws.Columns(anchorCol).Left
+            co.Width = ws.Columns(anchorCol).Resize(, 6).Width
+            co.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
+        End If
+    Next co
+
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, Len("FlagPanel_")) = "FlagPanel_" Then
+            chartName = Mid$(shp.Name, Len("FlagPanel_") + 1)
+            Set co = Nothing
+            On Error Resume Next
+            Set co = ws.ChartObjects(chartName)
+            On Error GoTo AlignmentDone
+
+            If Not co Is Nothing Then
+                shp.Placement = xlFreeFloating
+                shp.Top = co.Top
+                shp.Left = co.Left + co.Width + 10
+                shp.Height = co.Height
+                shp.Width = co.Width * 1.65
+            End If
+        End If
+    Next shp
+
+AlignmentDone:
+End Sub
+
+Private Function ParseSecChartAnchor(ByVal chartName As String, _
+                                     ByRef titleRow As Long, _
+                                     ByRef endRow As Long, _
+                                     ByRef anchorCol As Long) As Boolean
+    Const PREFIX As String = "SecChart_R"
+    Dim body As String
+    Dim endMarker As Long, colMarker As Long
+    Dim titleText As String, endText As String, colText As String
+
+    If Left$(chartName, Len(PREFIX)) <> PREFIX Then Exit Function
+
+    body = Mid$(chartName, Len(PREFIX) + 1)
+    endMarker = InStr(1, body, "_E", vbBinaryCompare)
+    colMarker = InStr(1, body, "_C", vbBinaryCompare)
+    If endMarker <= 1 Or colMarker <= endMarker + 2 Then Exit Function
+
+    titleText = Left$(body, endMarker - 1)
+    endText = Mid$(body, endMarker + 2, colMarker - endMarker - 2)
+    colText = Mid$(body, colMarker + 2)
+    If Not IsNumeric(titleText) Or Not IsNumeric(endText) Or Not IsNumeric(colText) Then Exit Function
+
+    titleRow = CLng(titleText)
+    endRow = CLng(endText)
+    anchorCol = CLng(colText)
+    If titleRow < 1 Or endRow < titleRow Or anchorCol < 1 Then Exit Function
+
+    ParseSecChartAnchor = True
+End Function
 
 '---------------------------------------------------------
 ' ROW COLOURING
