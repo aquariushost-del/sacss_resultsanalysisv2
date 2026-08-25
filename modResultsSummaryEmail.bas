@@ -106,6 +106,13 @@ Private Type tEmailLevelSummary
     FailOneStudentCount As Long
     FailTwoStudentCount As Long
     FailThreePlusStudentCount As Long
+    DistinctionStudentCount As Long
+    NoDistinctionStudentCount As Long
+    OneDistinctionStudentCount As Long
+    TwoDistinctionStudentCount As Long
+    ThreeDistinctionStudentCount As Long
+    FourDistinctionStudentCount As Long
+    FivePlusDistinctionStudentCount As Long
     G3Profile As tEmailGroupProfile
     G2Profile As tEmailGroupProfile
     G1Profile As tEmailGroupProfile
@@ -746,7 +753,7 @@ Private Sub EvaluateEmailGrade(ByVal scheme As String, ByVal gradeText As String
         Case "G1"
             Select Case gradeText
                 Case "A": pointValue = 1: isPass = True: isDist = True
-                Case "B": pointValue = 2: isPass = True: isDist = True
+                Case "B": pointValue = 2: isPass = True
                 Case "C": pointValue = 3: isPass = True
                 Case "D": pointValue = 4: isPass = True
                 Case "E": pointValue = 5
@@ -1040,9 +1047,9 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
     Dim ws As Worksheet
     Dim expectedSheetName As String
     Dim classCol As Long, regCol As Long, nameCol As Long
-    Dim attemptedCol As Long, passedCol As Long, failedCol As Long
+    Dim attemptedCol As Long, passedCol As Long, failedCol As Long, distinctionCol As Long
     Dim lastRow As Long, r As Long
-    Dim attemptedCount As Long, passedCount As Long, failedCount As Long
+    Dim attemptedCount As Long, passedCount As Long, failedCount As Long, distinctionCount As Long
     Dim classText As String, regText As String, nameText As String, keyText As String
     Dim seen As Object
 
@@ -1061,7 +1068,9 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
     attemptedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Attempted")
     passedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Passed")
     failedCol = FindEmailHeaderAtRow(ws, 4, "Subjects Failed")
-    If classCol = 0 Or nameCol = 0 Or attemptedCol = 0 Or passedCol = 0 Or failedCol = 0 Then
+    distinctionCol = FindEmailHeaderAtRow(ws, 4, "Distinctions")
+    If classCol = 0 Or nameCol = 0 Or attemptedCol = 0 Or passedCol = 0 _
+       Or failedCol = 0 Or distinctionCol = 0 Then
         Err.Raise vbObjectError + 2102, "AddStudentMetricsFromAtRiskSheet", _
                   "The sheet '" & expectedSheetName & "' does not have the expected AtRisk columns. Rebuild it with BuildSec_AtRiskSummary."
     End If
@@ -1085,6 +1094,7 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
             attemptedCount = EmailLongValue(ws.Cells(r, attemptedCol).value)
             passedCount = EmailLongValue(ws.Cells(r, passedCol).value)
             failedCount = EmailLongValue(ws.Cells(r, failedCol).value)
+            distinctionCount = EmailLongValue(ws.Cells(r, distinctionCol).value)
 
             ' Retain all-VR/MC students in AtRisk for RAFA, but do
             ' not include 0/0/0 rows in management-email outcomes.
@@ -1092,11 +1102,20 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
                 If Not seen.Exists(keyText) Then
                     seen.Add keyText, True
                     summary.ValidStudentCount = summary.ValidStudentCount + 1
+                    summary.DistinctionStudentCount = summary.DistinctionStudentCount + 1
                     Select Case failedCount
                         Case 0: summary.PassAllStudentCount = summary.PassAllStudentCount + 1
                         Case 1: summary.FailOneStudentCount = summary.FailOneStudentCount + 1
                         Case 2: summary.FailTwoStudentCount = summary.FailTwoStudentCount + 1
                         Case Else: summary.FailThreePlusStudentCount = summary.FailThreePlusStudentCount + 1
+                    End Select
+                    Select Case distinctionCount
+                        Case 0: summary.NoDistinctionStudentCount = summary.NoDistinctionStudentCount + 1
+                        Case 1: summary.OneDistinctionStudentCount = summary.OneDistinctionStudentCount + 1
+                        Case 2: summary.TwoDistinctionStudentCount = summary.TwoDistinctionStudentCount + 1
+                        Case 3: summary.ThreeDistinctionStudentCount = summary.ThreeDistinctionStudentCount + 1
+                        Case 4: summary.FourDistinctionStudentCount = summary.FourDistinctionStudentCount + 1
+                        Case Else: summary.FivePlusDistinctionStudentCount = summary.FivePlusDistinctionStudentCount + 1
                     End Select
                 End If
             End If
@@ -1232,6 +1251,13 @@ Private Sub SwapLevelSummaries(ByRef a As tEmailLevelSummary, _
     longValue = a.FailOneStudentCount: a.FailOneStudentCount = b.FailOneStudentCount: b.FailOneStudentCount = longValue
     longValue = a.FailTwoStudentCount: a.FailTwoStudentCount = b.FailTwoStudentCount: b.FailTwoStudentCount = longValue
     longValue = a.FailThreePlusStudentCount: a.FailThreePlusStudentCount = b.FailThreePlusStudentCount: b.FailThreePlusStudentCount = longValue
+    longValue = a.DistinctionStudentCount: a.DistinctionStudentCount = b.DistinctionStudentCount: b.DistinctionStudentCount = longValue
+    longValue = a.NoDistinctionStudentCount: a.NoDistinctionStudentCount = b.NoDistinctionStudentCount: b.NoDistinctionStudentCount = longValue
+    longValue = a.OneDistinctionStudentCount: a.OneDistinctionStudentCount = b.OneDistinctionStudentCount: b.OneDistinctionStudentCount = longValue
+    longValue = a.TwoDistinctionStudentCount: a.TwoDistinctionStudentCount = b.TwoDistinctionStudentCount: b.TwoDistinctionStudentCount = longValue
+    longValue = a.ThreeDistinctionStudentCount: a.ThreeDistinctionStudentCount = b.ThreeDistinctionStudentCount: b.ThreeDistinctionStudentCount = longValue
+    longValue = a.FourDistinctionStudentCount: a.FourDistinctionStudentCount = b.FourDistinctionStudentCount: b.FourDistinctionStudentCount = longValue
+    longValue = a.FivePlusDistinctionStudentCount: a.FivePlusDistinctionStudentCount = b.FivePlusDistinctionStudentCount: b.FivePlusDistinctionStudentCount = longValue
     SwapEmailGroupProfiles a.G3Profile, b.G3Profile
     SwapEmailGroupProfiles a.G2Profile, b.G2Profile
     SwapEmailGroupProfiles a.G1Profile, b.G1Profile
@@ -1293,13 +1319,19 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
-    AppendHtml html, CardStart("2. Subject-Level Areas of Concern", "")
+    AppendHtml html, CardStart("2. Student Distinction Profile by Level", "")
+    AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount)
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Bands are mutually exclusive and show percentage (number of students). Distinction = A1/A2 for G3 or EX/O-Level; 1/2 for G2 or NA/N(A); and A only for G1 or NT/N(T). AB is not a distinction; VR/MC and subjects excluded in Settings column V are disregarded. Students with no counted subjects are excluded.</div>"
+    AppendHtml html, CardEnd()
+
+    AppendHtml html, SpacerRow(10)
+    AppendHtml html, CardStart("3. Subject-Level Areas of Concern", "")
     AppendHtml html, BuildManagementConcernTable(subjectResults, subjectResultCount, config)
     AppendHtml html, BuildManagementConcernCriteria(config)
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
-    AppendHtml html, CardStart("3. Strong Subject-Level Outcomes", "")
+    AppendHtml html, CardStart("4. Strong Subject-Level Outcomes", "")
     AppendHtml html, BuildManagementStrongTable(subjectResults, subjectResultCount, config)
     AppendHtml html, BuildManagementStrongCriteria(config)
     AppendHtml html, CardEnd()
@@ -1333,6 +1365,30 @@ Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmail
     Next i
 
     BuildManagementStudentOutcomesTable = html & "</table>"
+End Function
+
+Private Function BuildManagementDistinctionOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
+                                                          ByVal summaryCount As Long) As String
+    Dim html As String, i As Long
+
+    html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
+           HeaderTd("No Distinction") & HeaderTd("1 Distinction") & _
+           HeaderTd("2 Distinctions") & HeaderTd("3 Distinctions") & _
+           HeaderTd("4 Distinctions") & HeaderTd("5+ Distinctions") & "</tr>"
+
+    For i = 1 To summaryCount
+        If summaries(i).DistinctionStudentCount > 0 Then
+            html = html & "<tr>" & TextTd(ManagementLevelLabel(summaries(i).LevelText), "#1f4e79") & _
+                   OutcomeTd(summaries(i).NoDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#60788e", "#f7f9fb") & _
+                   OutcomeTd(summaries(i).OneDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#385a78", "#ffffff") & _
+                   OutcomeTd(summaries(i).TwoDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#1f4e79", "#eef5fb") & _
+                   OutcomeTd(summaries(i).ThreeDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#4472c4", "#eaf0fb") & _
+                   OutcomeTd(summaries(i).FourDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#548235", "#edf6e8") & _
+                   OutcomeTd(summaries(i).FivePlusDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#2f6b2f", "#e2f0d9") & "</tr>"
+        End If
+    Next i
+
+    BuildManagementDistinctionOutcomesTable = html & "</table>"
 End Function
 
 Private Function OutcomeTd(ByVal studentCount As Long, ByVal denominator As Long, _
@@ -1728,7 +1784,7 @@ Private Sub AppendSchemePerformance(ByRef html As String, _
     Select Case scheme
         Case "G3": criteria = "Distinction: A1-A2; Pass: A1-C6; Fail: D7-F9. Lower MSG is stronger."
         Case "G2": criteria = "Distinction: 1-2; Pass: 1-5; Fail: 6. Lower MSG is stronger."
-        Case "G1": criteria = "Distinction: A-B; Pass: A-D; Fail: E."
+        Case "G1": criteria = "Distinction: A only; Pass: A-D; Fail: E."
     End Select
 
     AppendHtml html, SpacerRow(10)
