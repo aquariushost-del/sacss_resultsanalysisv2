@@ -1014,9 +1014,13 @@ Private Sub DraftAllLevelsManagementSummary()
         End If
         htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
                                            config, gSelectedExamLabel, gSelectedYear, "Stream")
+        BuildManagementSummaryWorksheet streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
+                                        config, gSelectedExamLabel, gSelectedYear, "Stream"
     Else
         htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
                                            config, gSelectedExamLabel, gSelectedYear, "Level")
+        BuildManagementSummaryWorksheet summaries, summaryCount, subjectResults, subjectResultCount, _
+                                        config, gSelectedExamLabel, gSelectedYear, "Level"
     End If
     CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
 End Sub
@@ -1506,6 +1510,398 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, "</table></td></tr></table></body></html>"
     BuildAllLevelsEmailHtml = html
+End Function
+
+'------------------------------------------------------------
+' MANAGEMENT SUMMARY WORKSHEET
+'------------------------------------------------------------
+Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSummary, _
+                                            ByVal summaryCount As Long, _
+                                            ByRef subjectResults() As tEmailSubjectResult, _
+                                            ByVal subjectResultCount As Long, _
+                                            ByRef config As tEmailManagementConfig, _
+                                            ByVal assessmentName As String, _
+                                            ByVal yearText As String, _
+                                            ByVal breakdownLabel As String)
+    Dim ws As Worksheet
+    Dim rowPtr As Long, headerRow As Long, lastRow As Long
+    Dim i As Long
+    Dim atLeastOne As Long, atLeastTwo As Long, atLeastThree As Long
+    Dim atLeastFour As Long, atLeastFive As Long
+    Dim schoolName As String, geSymbol As String
+
+    Set ws = GetOrCreateManagementSummarySheet()
+    schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
+    geSymbol = ChrW(&H2265)
+
+    With ws
+        .Cells.Font.Name = "Calibri"
+        .Cells.Font.Size = 11
+        .Columns("A").ColumnWidth = 16
+        .Columns("B").ColumnWidth = 33
+        .Columns("C:F").ColumnWidth = 20
+
+        .Range("A1:F1").Merge
+        .Range("A1").value = "For Internal Use only."
+        .Range("A1").Interior.Color = RGB(183, 28, 28)
+        .Range("A1").Font.Color = RGB(255, 255, 255)
+        .Range("A1").Font.Bold = True
+        .Range("A1").HorizontalAlignment = xlCenter
+        .Rows(1).RowHeight = 24
+
+        .Range("A3:F3").Merge
+        .Range("A3").value = assessmentName & IIf(yearText <> "", " " & yearText, "") & " - Results Summary"
+        .Range("A3").Font.Size = 20
+        .Range("A3").Font.Bold = True
+        .Range("A3").Font.Color = RGB(31, 78, 121)
+
+        .Range("A4:F4").Merge
+        .Range("A4").value = schoolName
+        .Range("A4").Font.Bold = True
+        .Range("A4").Font.Color = RGB(56, 90, 120)
+
+        .Range("A5:F5").Merge
+        .Range("A5").value = "Please find attached the detailed " & assessmentName & _
+                             " Results Analysis. A summary of the key results is provided below."
+        .Range("A5").Font.Color = RGB(96, 120, 142)
+        .Range("A5").WrapText = True
+        .Rows(5).RowHeight = 30
+    End With
+
+    rowPtr = 7
+    WriteSummarySectionTitle ws, rowPtr, "1. Student Outcomes by " & breakdownLabel
+    rowPtr = rowPtr + 1
+    headerRow = rowPtr
+    WriteSummaryHeaderRow ws, rowPtr, Array(breakdownLabel, "Pass All Subjects", _
+                          "Failed " & geSymbol & "1 Subject", "Failed " & geSymbol & "2 Subjects", _
+                          "Failed " & geSymbol & "3 Subjects")
+    rowPtr = rowPtr + 1
+    For i = 1 To summaryCount
+        If summaries(i).ValidStudentCount > 0 Then
+            atLeastThree = summaries(i).FailThreePlusStudentCount
+            atLeastTwo = summaries(i).FailTwoStudentCount + atLeastThree
+            atLeastOne = summaries(i).FailOneStudentCount + atLeastTwo
+            ws.Cells(rowPtr, 1).value = ManagementLevelLabel(summaries(i).LevelText)
+            ws.Cells(rowPtr, 2).value = SummaryOutcomeText(summaries(i).PassAllStudentCount, summaries(i).ValidStudentCount)
+            ws.Cells(rowPtr, 3).value = SummaryOutcomeText(atLeastOne, summaries(i).ValidStudentCount)
+            ws.Cells(rowPtr, 4).value = SummaryOutcomeText(atLeastTwo, summaries(i).ValidStudentCount)
+            ws.Cells(rowPtr, 5).value = SummaryOutcomeText(atLeastThree, summaries(i).ValidStudentCount)
+            rowPtr = rowPtr + 1
+        End If
+    Next i
+    lastRow = rowPtr - 1
+    StyleSummaryDataTable ws, headerRow, lastRow, 5
+    StyleSummaryOutcomeColumns ws, headerRow, lastRow, False
+    WriteSummaryNote ws, rowPtr, "Failure figures are cumulative: a student who failed three subjects appears in the Failed " & _
+                     geSymbol & "1, " & geSymbol & "2 and " & geSymbol & "3 columns."
+    rowPtr = rowPtr + 2
+
+    WriteSummarySectionTitle ws, rowPtr, "2. Student Distinction Profile by " & breakdownLabel
+    rowPtr = rowPtr + 1
+    headerRow = rowPtr
+    WriteSummaryHeaderRow ws, rowPtr, Array(breakdownLabel, geSymbol & "1 Distinction", _
+                          geSymbol & "2 Distinctions", geSymbol & "3 Distinctions", _
+                          geSymbol & "4 Distinctions", geSymbol & "5 Distinctions")
+    rowPtr = rowPtr + 1
+    For i = 1 To summaryCount
+        If summaries(i).DistinctionStudentCount > 0 Then
+            atLeastFive = summaries(i).FivePlusDistinctionStudentCount
+            atLeastFour = summaries(i).FourDistinctionStudentCount + atLeastFive
+            atLeastThree = summaries(i).ThreeDistinctionStudentCount + atLeastFour
+            atLeastTwo = summaries(i).TwoDistinctionStudentCount + atLeastThree
+            atLeastOne = summaries(i).OneDistinctionStudentCount + atLeastTwo
+            ws.Cells(rowPtr, 1).value = ManagementLevelLabel(summaries(i).LevelText)
+            ws.Cells(rowPtr, 2).value = SummaryOutcomeText(atLeastOne, summaries(i).DistinctionStudentCount)
+            ws.Cells(rowPtr, 3).value = SummaryOutcomeText(atLeastTwo, summaries(i).DistinctionStudentCount)
+            ws.Cells(rowPtr, 4).value = SummaryOutcomeText(atLeastThree, summaries(i).DistinctionStudentCount)
+            ws.Cells(rowPtr, 5).value = SummaryOutcomeText(atLeastFour, summaries(i).DistinctionStudentCount)
+            ws.Cells(rowPtr, 6).value = SummaryOutcomeText(atLeastFive, summaries(i).DistinctionStudentCount)
+            rowPtr = rowPtr + 1
+        End If
+    Next i
+    lastRow = rowPtr - 1
+    StyleSummaryDataTable ws, headerRow, lastRow, 6
+    StyleSummaryOutcomeColumns ws, headerRow, lastRow, True
+    WriteSummaryNote ws, rowPtr, "Figures are cumulative: a student with three distinctions is included under " & _
+                     geSymbol & "1, " & geSymbol & "2 and " & geSymbol & "3."
+    rowPtr = rowPtr + 2
+
+    WriteSummarySectionTitle ws, rowPtr, "3. Subject-Level Areas of Concern"
+    rowPtr = rowPtr + 1
+    rowPtr = WriteSummaryConcernTable(ws, rowPtr, subjectResults, subjectResultCount, config)
+    WriteSummaryNote ws, rowPtr, "Criteria: Concern = pass rate below " & FormatThreshold(config.ConcernBelowPct) & _
+                     "; Monitor = pass rate from " & FormatThreshold(config.ConcernBelowPct) & " to below " & _
+                     FormatThreshold(config.MonitorBelowPct) & ". Subjects with fewer than " & config.MinCandidature & _
+                     " students are excluded due to the small candidature. Full results remain available in the attached Excel workbook."
+    rowPtr = rowPtr + 2
+
+    WriteSummarySectionTitle ws, rowPtr, "4. Strong Subject-Level Outcomes"
+    rowPtr = rowPtr + 1
+    rowPtr = WriteSummaryStrongTable(ws, rowPtr, subjectResults, subjectResultCount, config)
+    WriteSummaryNote ws, rowPtr, "Criteria: Subjects are highlighted if the pass rate is at least " & _
+                     FormatThreshold(config.StrongPassAtLeastPct) & " and/or the distinction rate is at least " & _
+                     FormatThreshold(config.StrongDistAtLeastPct) & ". Groups with fewer than " & _
+                     config.MinCandidature & " students are excluded from this summary."
+    rowPtr = rowPtr + 2
+
+    With ws.Range(ws.Cells(rowPtr, 1), ws.Cells(rowPtr, 6))
+        .Merge
+        .value = "Detailed subject-level results, students at risk and top performers are available in the attached Excel workbook."
+        .Font.Color = RGB(56, 90, 120)
+        .WrapText = True
+    End With
+    rowPtr = rowPtr + 1
+    With ws.Range(ws.Cells(rowPtr, 1), ws.Cells(rowPtr, 6))
+        .Merge
+        .value = "Thank you."
+        .Font.Color = RGB(56, 90, 120)
+    End With
+
+    With ws
+        .Rows("1:" & rowPtr).VerticalAlignment = xlCenter
+        .Tab.Color = RGB(31, 78, 121)
+        .PageSetup.Orientation = xlLandscape
+        .PageSetup.Zoom = False
+        .PageSetup.FitToPagesWide = 1
+        .PageSetup.FitToPagesTall = False
+        .Activate
+    End With
+    ActiveWindow.DisplayGridlines = False
+    ActiveWindow.FreezePanes = False
+    ws.Range("A7").Select
+    ActiveWindow.FreezePanes = True
+End Sub
+
+Private Sub StyleSummaryOutcomeColumns(ByVal ws As Worksheet, ByVal headerRow As Long, _
+                                       ByVal lastRow As Long, ByVal distinctionTable As Boolean)
+    If lastRow <= headerRow Then Exit Sub
+
+    If distinctionTable Then
+        ws.Range(ws.Cells(headerRow + 1, 2), ws.Cells(lastRow, 2)).Interior.Color = RGB(255, 255, 255)
+        ws.Range(ws.Cells(headerRow + 1, 3), ws.Cells(lastRow, 3)).Interior.Color = RGB(238, 245, 251)
+        ws.Range(ws.Cells(headerRow + 1, 4), ws.Cells(lastRow, 4)).Interior.Color = RGB(234, 240, 251)
+        ws.Range(ws.Cells(headerRow + 1, 5), ws.Cells(lastRow, 5)).Interior.Color = RGB(237, 246, 232)
+        ws.Range(ws.Cells(headerRow + 1, 6), ws.Cells(lastRow, 6)).Interior.Color = RGB(226, 240, 217)
+        ws.Range(ws.Cells(headerRow + 1, 2), ws.Cells(lastRow, 4)).Font.Color = RGB(31, 78, 121)
+        ws.Range(ws.Cells(headerRow + 1, 5), ws.Cells(lastRow, 6)).Font.Color = RGB(47, 107, 47)
+    Else
+        ws.Range(ws.Cells(headerRow + 1, 2), ws.Cells(lastRow, 2)).Interior.Color = RGB(237, 246, 232)
+        ws.Range(ws.Cells(headerRow + 1, 2), ws.Cells(lastRow, 2)).Font.Color = RGB(84, 130, 53)
+        ws.Range(ws.Cells(headerRow + 1, 3), ws.Cells(lastRow, 3)).Interior.Color = RGB(255, 251, 237)
+        ws.Range(ws.Cells(headerRow + 1, 3), ws.Cells(lastRow, 3)).Font.Color = RGB(138, 100, 16)
+        ws.Range(ws.Cells(headerRow + 1, 4), ws.Cells(lastRow, 4)).Interior.Color = RGB(255, 243, 214)
+        ws.Range(ws.Cells(headerRow + 1, 4), ws.Cells(lastRow, 4)).Font.Color = RGB(179, 107, 0)
+        ws.Range(ws.Cells(headerRow + 1, 5), ws.Cells(lastRow, 5)).Interior.Color = RGB(255, 240, 240)
+        ws.Range(ws.Cells(headerRow + 1, 5), ws.Cells(lastRow, 5)).Font.Color = RGB(192, 0, 0)
+    End If
+End Sub
+
+Private Function GetOrCreateManagementSummarySheet() As Worksheet
+    Dim ws As Worksheet, dashboardWs As Worksheet
+    Dim k As Long
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Summary")
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        On Error Resume Next
+        Set dashboardWs = ThisWorkbook.Worksheets("Dashboard")
+        On Error GoTo 0
+        If dashboardWs Is Nothing Then
+            Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
+        Else
+            Set ws = ThisWorkbook.Worksheets.Add(After:=dashboardWs)
+        End If
+        ws.Name = "Summary"
+    Else
+        ws.Cells.UnMerge
+        ws.Cells.Clear
+        For k = ws.Shapes.count To 1 Step -1
+            ws.Shapes(k).Delete
+        Next k
+    End If
+
+    Set GetOrCreateManagementSummarySheet = ws
+End Function
+
+Private Sub WriteSummarySectionTitle(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal titleText As String)
+    With ws.Range(ws.Cells(rowNum, 1), ws.Cells(rowNum, 6))
+        .Merge
+        .value = titleText
+        .Interior.Color = RGB(221, 235, 247)
+        .Font.Color = RGB(31, 78, 121)
+        .Font.Bold = True
+        .Font.Size = 13
+        .Borders.LineStyle = xlContinuous
+        .Borders.Color = RGB(183, 204, 221)
+    End With
+    ws.Rows(rowNum).RowHeight = 24
+End Sub
+
+Private Sub WriteSummaryHeaderRow(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal headers As Variant)
+    Dim i As Long, lastCol As Long
+    lastCol = UBound(headers) - LBound(headers) + 1
+    For i = LBound(headers) To UBound(headers)
+        ws.Cells(rowNum, i - LBound(headers) + 1).value = headers(i)
+    Next i
+    With ws.Range(ws.Cells(rowNum, 1), ws.Cells(rowNum, lastCol))
+        .Interior.Color = RGB(238, 245, 251)
+        .Font.Color = RGB(56, 90, 120)
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+        .WrapText = True
+    End With
+    ws.Rows(rowNum).RowHeight = 32
+End Sub
+
+Private Sub StyleSummaryDataTable(ByVal ws As Worksheet, ByVal headerRow As Long, _
+                                  ByVal lastRow As Long, ByVal lastCol As Long)
+    If lastRow < headerRow Then Exit Sub
+    With ws.Range(ws.Cells(headerRow, 1), ws.Cells(lastRow, lastCol))
+        .Borders.LineStyle = xlContinuous
+        .Borders.Color = RGB(215, 228, 239)
+        .Borders.Weight = xlThin
+        .VerticalAlignment = xlCenter
+    End With
+    If lastRow > headerRow Then
+        ws.Range(ws.Cells(headerRow + 1, 1), ws.Cells(lastRow, 1)).Font.Bold = True
+        ws.Range(ws.Cells(headerRow + 1, 1), ws.Cells(lastRow, 1)).Font.Color = RGB(31, 78, 121)
+        If lastCol >= 2 Then
+            ws.Range(ws.Cells(headerRow + 1, 2), ws.Cells(lastRow, lastCol)).HorizontalAlignment = xlCenter
+        End If
+    End If
+End Sub
+
+Private Sub WriteSummaryNote(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal noteText As String)
+    With ws.Range(ws.Cells(rowNum, 1), ws.Cells(rowNum, 6))
+        .Merge
+        .value = noteText
+        .Font.Italic = True
+        .Font.Size = 10
+        .Font.Color = RGB(96, 120, 142)
+        .WrapText = True
+    End With
+    ws.Rows(rowNum).RowHeight = 34
+End Sub
+
+Private Function SummaryOutcomeText(ByVal studentCount As Long, ByVal denominator As Long) As String
+    SummaryOutcomeText = Format$(EmailPct(studentCount, denominator), "0.0") & "% (" & CStr(studentCount) & ")"
+End Function
+
+Private Function WriteSummaryConcernTable(ByVal ws As Worksheet, ByVal startRow As Long, _
+                                          ByRef results() As tEmailSubjectResult, _
+                                          ByVal resultCount As Long, _
+                                          ByRef config As tEmailManagementConfig) As Long
+    Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
+    Dim rowPtr As Long, passPct As Double, statusText As String
+    Dim statusColor As Long, statusFill As Long
+
+    For i = 1 To resultCount
+        If results(i).N >= config.MinCandidature Then
+            If EmailPct(results(i).PassCount, results(i).N) < config.MonitorBelowPct Then
+                n = n + 1
+                ReDim Preserve idx(1 To n)
+                idx(n) = i
+            End If
+        End If
+    Next i
+
+    If n = 0 Then
+        ws.Range(ws.Cells(startRow, 1), ws.Cells(startRow, 6)).Merge
+        ws.Cells(startRow, 1).value = "No subject/G-level groups met the criteria for Areas of Concern."
+        ws.Cells(startRow, 1).Font.Color = RGB(96, 120, 142)
+        WriteSummaryConcernTable = startRow + 1
+        Exit Function
+    End If
+
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If ManagementConcernBefore(results(idx(j)), results(idx(i))) Then
+                tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+            End If
+        Next j
+    Next i
+
+    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate", "Status")
+    rowPtr = startRow + 1
+    For i = 1 To n
+        j = idx(i)
+        passPct = EmailPct(results(j).PassCount, results(j).N)
+        If passPct < config.ConcernBelowPct Then
+            statusText = "Concern": statusColor = RGB(192, 0, 0): statusFill = RGB(255, 240, 240)
+        Else
+            statusText = "Monitor": statusColor = RGB(138, 100, 16): statusFill = RGB(255, 243, 214)
+        End If
+        ws.Cells(rowPtr, 1).value = ManagementLevelLabel(results(j).LevelText)
+        ws.Cells(rowPtr, 2).value = results(j).DisplayName & " " & results(j).Scheme
+        ws.Cells(rowPtr, 3).value = results(j).N
+        ws.Cells(rowPtr, 4).value = passPct / 100#
+        ws.Cells(rowPtr, 4).NumberFormat = "0.0%"
+        ws.Cells(rowPtr, 5).value = statusText
+        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Font.Color = statusColor
+        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Interior.Color = statusFill
+        rowPtr = rowPtr + 1
+    Next i
+    StyleSummaryDataTable ws, startRow, rowPtr - 1, 5
+    ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
+    WriteSummaryConcernTable = rowPtr
+End Function
+
+Private Function WriteSummaryStrongTable(ByVal ws As Worksheet, ByVal startRow As Long, _
+                                         ByRef results() As tEmailSubjectResult, _
+                                         ByVal resultCount As Long, _
+                                         ByRef config As tEmailManagementConfig) As Long
+    Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
+    Dim rowPtr As Long, passPct As Double, distPct As Double
+
+    For i = 1 To resultCount
+        If results(i).N >= config.MinCandidature Then
+            passPct = EmailPct(results(i).PassCount, results(i).N)
+            distPct = EmailPct(results(i).DistCount, results(i).N)
+            If passPct >= config.StrongPassAtLeastPct Or distPct >= config.StrongDistAtLeastPct Then
+                n = n + 1
+                ReDim Preserve idx(1 To n)
+                idx(n) = i
+            End If
+        End If
+    Next i
+
+    If n = 0 Then
+        ws.Range(ws.Cells(startRow, 1), ws.Cells(startRow, 6)).Merge
+        ws.Cells(startRow, 1).value = "No subject/G-level groups met the criteria for Strong Subject-Level Outcomes."
+        ws.Cells(startRow, 1).Font.Color = RGB(96, 120, 142)
+        WriteSummaryStrongTable = startRow + 1
+        Exit Function
+    End If
+
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If ManagementStrongBefore(results(idx(j)), results(idx(i))) Then
+                tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+            End If
+        Next j
+    Next i
+
+    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate", "Distinction Rate")
+    rowPtr = startRow + 1
+    For i = 1 To n
+        j = idx(i)
+        passPct = EmailPct(results(j).PassCount, results(j).N)
+        distPct = EmailPct(results(j).DistCount, results(j).N)
+        ws.Cells(rowPtr, 1).value = ManagementLevelLabel(results(j).LevelText)
+        ws.Cells(rowPtr, 2).value = results(j).DisplayName & " " & results(j).Scheme
+        ws.Cells(rowPtr, 3).value = results(j).N
+        ws.Cells(rowPtr, 4).value = passPct / 100#
+        ws.Cells(rowPtr, 5).value = distPct / 100#
+        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).NumberFormat = "0.0%"
+        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Font.Color = RGB(84, 130, 53)
+        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Interior.Color = RGB(237, 246, 232)
+        rowPtr = rowPtr + 1
+    Next i
+    StyleSummaryDataTable ws, startRow, rowPtr - 1, 5
+    ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
+    WriteSummaryStrongTable = rowPtr
 End Function
 
 Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
