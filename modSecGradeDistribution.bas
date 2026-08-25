@@ -1,4 +1,4 @@
-Attribute VB_Name = "modSecGradeDistribution"
+ Attribute VB_Name = "modSecGradeDistribution"
 Option Explicit
 
 Private Const DEFAULT_MIN_SUBJECT_N As Long = 10
@@ -647,6 +647,10 @@ Private Sub ProcessSecSourceSheet(ByVal wsSrc As Worksheet)
     ' Column AutoFit calls made while later subjects are built can move or
     ' resize earlier floating objects in Excel for Mac. Snap every chart and
     ' panel back to its encoded worksheet anchors after the sheet is complete.
+    wsDest.Activate
+    DoEvents
+    RealignSecAnalysisObjects wsDest
+    DoEvents
     RealignSecAnalysisObjects wsDest
 
     Exit Sub
@@ -2188,6 +2192,7 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
     Dim shp As Shape
     Dim titleRow As Long, endRow As Long, anchorCol As Long
     Dim chartName As String
+    Dim actualInsideTop As Double, correctedTop As Double
 
     On Error GoTo AlignmentDone
 
@@ -2199,6 +2204,17 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
             co.Width = ws.Columns(anchorCol).Resize(, 6).Width
             co.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
             SetSecChartPlotArea co
+
+            ' Mac Excel may ignore the requested InsideTop but it still reports
+            ' the offset it actually rendered. Shift the outer chart by that
+            ' measured offset so the visible plot begins at the table header.
+            actualInsideTop = 0
+            On Error Resume Next
+            actualInsideTop = co.Chart.PlotArea.InsideTop
+            On Error GoTo AlignmentDone
+            correctedTop = ws.Rows(titleRow + 1).Top - actualInsideTop
+            If correctedTop < 0 Then correctedTop = 0
+            co.Top = correctedTop
         End If
     Next co
 
@@ -2212,10 +2228,18 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
 
             If Not co Is Nothing Then
                 shp.Placement = xlFreeFloating
-                shp.Top = co.Top
                 shp.Left = co.Left + co.Width + 10
-                shp.Height = co.Height
                 shp.Width = co.Width * 1.65
+
+                If ParseSecChartAnchor(chartName, titleRow, endRow, anchorCol) Then
+                    ' Keep the narrative panel aligned to the subject block,
+                    ' independently of the chart's measured plot correction.
+                    shp.Top = ws.Rows(titleRow).Top
+                    shp.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
+                Else
+                    shp.Top = co.Top
+                    shp.Height = co.Height
+                End If
             End If
         End If
     Next shp
