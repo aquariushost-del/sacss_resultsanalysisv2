@@ -776,7 +776,10 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
         Next i
 
         If groupTotalCount > 0 Then
-            fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+            fsbbGroup = GetConfiguredLegacyGroup(className, levelCode)
+            If fsbbGroup = "" Then
+                fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+            End If
 
             If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Then
                 topPrimaryCount = 0
@@ -962,9 +965,9 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
     levelMode = GetLevelMode(levelCode)
     If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
         explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
-                    "then by the second top-grade column. O top 20; N(A)/N(T) top 10; ties included." & vbLf & _
-                    "Columns used: O uses A1/A2 (A1 then A2); N(A) uses 1/2 (1 then 2); " & _
-                    "N(T) uses A/B (A then B)." & vbLf & _
+                    "then by the second top-grade column. EX top 20; NA/NT top 10; ties included." & vbLf & _
+                    "Columns used: EX uses A1/A2 (A1 then A2); NA uses 1/2 (1 then 2); " & _
+                    "NT uses A/B (A then B)." & vbLf & _
                     "Legacy mode: downward conversion is NOT applied. Top grades are counted within each subject's own track." & vbLf & _
                     "Note: Do not use this data for Awards selection."
     Else
@@ -1072,14 +1075,18 @@ Private Function GetLegacySchemeFromHeader(ByVal header As String) As String
     h = UCase$(Replace(Trim$(header), " ", ""))
 
     ' Legacy tracks:
-    '   - O or O-LEVEL -> G3 equivalent
-    '   - N(A) -> G2 equivalent
-    '   - N(T) -> G1 equivalent
-    If InStr(h, "N(T)") > 0 Then
+    '   - EX / Express / O-Level -> G3 equivalent
+    '   - NA / N(A)             -> G2 equivalent
+    '   - NT / N(T)             -> G1 equivalent
+    If InStr(h, "N(T)") > 0 Or InStr(h, "-NT") > 0 _
+       Or InStr(h, "(NT)") > 0 Or InStr(h, "NORMALTECH") > 0 Then
         GetLegacySchemeFromHeader = "G1"
-    ElseIf InStr(h, "N(A)") > 0 Then
+    ElseIf InStr(h, "N(A)") > 0 Or InStr(h, "-NA") > 0 _
+       Or InStr(h, "(NA)") > 0 Or InStr(h, "NORMALACADEMIC") > 0 Then
         GetLegacySchemeFromHeader = "G2"
-    ElseIf InStr(h, "-O") > 0 Or InStr(h, "(O)") > 0 Or InStr(h, "OLEVEL") > 0 Then
+    ElseIf InStr(h, "-EX") > 0 Or InStr(h, "(EX)") > 0 _
+       Or InStr(h, "EXPRESS") > 0 Or InStr(h, "-O") > 0 _
+       Or InStr(h, "(O)") > 0 Or InStr(h, "OLEVEL") > 0 Then
         GetLegacySchemeFromHeader = "G3"
     End If
 End Function
@@ -1090,9 +1097,9 @@ Private Function MapGroupLabelForMode(ByVal fsbbGroup As String, ByVal levelMode
 
     If UCase$(Trim$(levelMode)) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
         Select Case g
-            Case "G3": MapGroupLabelForMode = "O"
-            Case "G2": MapGroupLabelForMode = "N(A)"
-            Case "G1": MapGroupLabelForMode = "N(T)"
+            Case "G3": MapGroupLabelForMode = "EX"
+            Case "G2": MapGroupLabelForMode = "NA"
+            Case "G1": MapGroupLabelForMode = "NT"
             Case Else: MapGroupLabelForMode = g
         End Select
     Else
@@ -1398,7 +1405,10 @@ NextSubject:
             wsOut.Cells(outRow, 2).value = className
             wsOut.Cells(outRow, 3).value = regNo
             wsOut.Cells(outRow, 4).value = studentName
-            fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+            fsbbGroup = GetConfiguredLegacyGroup(className, levelCode)
+            If fsbbGroup = "" Then
+                fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
+            End If
             wsOut.Cells(outRow, 5).value = attemptedCount
             wsOut.Cells(outRow, 6).value = passCount
             wsOut.Cells(outRow, 7).value = failCount
@@ -2709,6 +2719,59 @@ Private Function GetGroupThresholdPercent() As Double
     Else
         GetGroupThresholdPercent = 70#
     End If
+End Function
+
+Private Function GetConfiguredLegacyGroup(ByVal className As String, _
+                                          ByVal levelCode As String) As String
+    Dim ws As Worksheet
+    Dim r As Long
+    Dim classKey As String, pattern As String, streamValue As String
+    Dim bestMatchLength As Long, candidateGroup As String
+
+    ' Explicit legacy streams apply only to the present Sec 4/5 cohorts.
+    If UCase$(Trim$(levelCode)) <> "S4" And UCase$(Trim$(levelCode)) <> "S5" Then Exit Function
+
+    classKey = UCase$(Replace(Trim$(className), " ", ""))
+    If classKey = "" Then Exit Function
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Settings")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    ' Settings!D2:E50 supports either the existing Class -> Level mapping
+    ' or a Sec 4/5 Class -> Stream mapping. Longest matching class pattern wins.
+    For r = 2 To 50
+        pattern = UCase$(Replace(Trim$(CStr(ws.Cells(r, "D").value)), " ", ""))
+        streamValue = CStr(ws.Cells(r, "E").value)
+        candidateGroup = LegacyStreamToGroup(streamValue)
+
+        If pattern <> "" And candidateGroup <> "" Then
+            If Left$(classKey, Len(pattern)) = pattern Then
+                If Len(pattern) > bestMatchLength Then
+                    bestMatchLength = Len(pattern)
+                    GetConfiguredLegacyGroup = candidateGroup
+                End If
+            End If
+        End If
+    Next r
+End Function
+
+Private Function LegacyStreamToGroup(ByVal streamValue As String) As String
+    Dim s As String
+    s = UCase$(Replace(Trim$(streamValue), " ", ""))
+    s = Replace(s, ".", "")
+    s = Replace(s, "(", "")
+    s = Replace(s, ")", "")
+
+    Select Case s
+        Case "EX", "EXPRESS"
+            LegacyStreamToGroup = "G3"
+        Case "NA", "NORMALACADEMIC"
+            LegacyStreamToGroup = "G2"
+        Case "NT", "NORMALTECHNICAL"
+            LegacyStreamToGroup = "G1"
+    End Select
 End Function
 
 Private Function ResolveFsbbGroup(ByVal g1Taken As Long, _
