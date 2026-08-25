@@ -1797,6 +1797,7 @@ Public Sub BuildSecSubjectGradeDistribution( _
 
     Dim destRowHeader As Long, destColFirst As Long
     Dim rowPtr As Long, cohortRow As Long
+    Dim titleRow As Long, visualEndRow As Long, chartRowCount As Long
 
     Dim total As Long
     Dim passCount As Long, failCount As Long, topCount As Long
@@ -1818,6 +1819,8 @@ Public Sub BuildSecSubjectGradeDistribution( _
     Dim titleCell As Range
     Dim validityFlag As String, patternType As String
     Dim line1 As String, line2 As String, line3 As String
+
+    Const MIN_SEC_CHART_ROWS As Long = 6
 
     outEndRow = 0
     On Error GoTo ErrHandler
@@ -2050,22 +2053,28 @@ Public Sub BuildSecSubjectGradeDistribution( _
     Set rngData = wsDest.Range(wsDest.Cells(cohortRow, destColFirst + 1), _
                                wsDest.Cells(cohortRow, destColFirst + numBands))
 
-    ' The table is complete at this point. Report its final row before
-    ' creating floating objects so a rendering error cannot make the next
-    ' subject reuse this block.
-    outEndRow = cohortRow
+    ' Excel charts have a practical minimum height for axes and data labels,
+    ' especially on Excel for Mac. A one-class table naturally occupies only
+    ' four rows including its title; a two-class table occupies five. Reserve
+    ' at least six rows for the visual block so the next subject is positioned
+    ' after the chart rather than merely after the shorter table.
+    titleRow = destRowHeader - 1
+    chartRowCount = cohortRow - titleRow + 1
+    If chartRowCount < MIN_SEC_CHART_ROWS Then chartRowCount = MIN_SEC_CHART_ROWS
+    visualEndRow = titleRow + chartRowCount - 1
+
+    ' Report the larger table/chart footprint before creating floating
+    ' objects so a rendering error cannot make the next subject reuse it.
+    outEndRow = visualEndRow
 
     leftPos = wsDest.Columns(colMean + 2).Left
-    topPos = wsDest.Rows(destRowHeader - 1).Top
+    topPos = wsDest.Rows(titleRow).Top
     chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
-    ' Start at the title row and end exactly at the COHORT row. The previous
-    ' +3 formula included one extra worksheet row, making every chart a little
-    ' taller than its matching title-and-table block.
-    chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 2).Height
+    chartHeight = wsDest.Rows(titleRow).Resize(chartRowCount).Height
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
-    co.Name = "SecChart_R" & CStr(destRowHeader - 1) & _
-              "_E" & CStr(cohortRow) & "_C" & CStr(colMean + 2)
+    co.Name = "SecChart_R" & CStr(titleRow) & _
+              "_E" & CStr(visualEndRow) & "_C" & CStr(colMean + 2)
     co.Placement = xlFreeFloating
     Set ch = co.Chart
 
