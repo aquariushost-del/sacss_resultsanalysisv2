@@ -2045,12 +2045,19 @@ Public Sub BuildSecSubjectGradeDistribution( _
     Set rngData = wsDest.Range(wsDest.Cells(cohortRow, destColFirst + 1), _
                                wsDest.Cells(cohortRow, destColFirst + numBands))
 
+    ' The table is complete at this point. Report its final row before
+    ' creating any floating objects so a chart/panel formatting error can
+    ' never make the next subject overwrite this table while leaving the
+    ' earlier chart behind.
+    outEndRow = cohortRow
+
     leftPos = wsDest.Columns(colMean + 2).Left
     topPos = wsDest.Rows(destRowHeader - 1).Top
     chartWidth = wsDest.Columns(colMean + 2).Resize(, 6).Width
     chartHeight = wsDest.Rows(destRowHeader - 1).Resize(cohortRow - destRowHeader + 3).Height
 
     Set co = wsDest.ChartObjects.Add(leftPos, topPos, chartWidth, chartHeight)
+    co.Placement = xlMoveAndSize
     Set ch = co.Chart
 
     With ch
@@ -2086,7 +2093,6 @@ Public Sub BuildSecSubjectGradeDistribution( _
     EvaluateDistributionForScheme totalArr, total, schemeKey, validityFlag, patternType, line1, line2, line3
     DrawValidityPanel wsDest, co, validityFlag, patternType, line1, line2, line3
 
-    outEndRow = cohortRow
     Exit Sub
 
 ErrHandler:
@@ -2101,6 +2107,8 @@ Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
     Dim shp As Shape
     Dim fullText As String
     Dim fillColor As Long, borderColor As Long, fontColor As Long
+
+    On Error GoTo PanelFail
 
     If co Is Nothing Then Exit Sub
     If co.Width <= 0 Or co.Height <= 0 Then Exit Sub
@@ -2128,6 +2136,7 @@ Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
 
     Set shp = ws.Shapes.AddShape(SHAPE_ROUNDED_RECTANGLE, panelLeft, panelTop, panelWidth, panelHeight)
     shp.Name = "FlagPanel_" & co.Name & "_" & ws.Index
+    shp.Placement = xlMoveAndSize
 
     With shp
         .Fill.ForeColor.RGB = fillColor
@@ -2148,6 +2157,10 @@ Private Sub DrawValidityPanel(ByVal ws As Worksheet, ByVal co As ChartObject, _
             .TextRange.ParagraphFormat.Alignment = msoAlignLeft
         End With
     End With
+
+PanelFail:
+    ' A panel-formatting limitation in a particular Excel version must not
+    ' abort the enclosing subject block or disturb the next table position.
 End Sub
 
 '---------------------------------------------------------
