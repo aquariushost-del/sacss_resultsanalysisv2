@@ -611,12 +611,13 @@ Private Sub CollectEmailSubjects(ByVal ws As Worksheet, _
     For c = 1 To lastCol
         headerText = Trim$(CStr(ws.Cells(1, c).value))
         If UCase$(Right$(headerText, 7)) = "(GRADE)" Then
-            scheme = DetectEmailScheme(ws, c, lastRow, headerText)
-            If scheme <> "" Then
+            sourceName = StripEmailGradeSuffix(headerText)
+            If Not IsExcludedEmailSubject(sourceName) Then
+                scheme = DetectEmailScheme(ws, c, lastRow, headerText)
+                If scheme <> "" Then
                 subjectCount = subjectCount + 1
                 ReDim Preserve subjects(1 To subjectCount)
 
-                sourceName = StripEmailGradeSuffix(headerText)
                 With subjects(subjectCount)
                     .SourceName = sourceName
                     .DisplayName = GetEmailSubjectDisplayName(sourceName)
@@ -662,8 +663,9 @@ Private Sub CollectEmailSubjects(ByVal ws As Worksheet, _
                     AppendWarning warningText, subjects(subjectCount).DisplayName & " (" & scheme & _
                                   ") contains " & subjects(subjectCount).AbCount & " AB value(s), counted as failures."
                 End If
-            Else
-                AppendWarning warningText, "Skipped unrecognised grade column: " & headerText & "."
+                Else
+                    AppendWarning warningText, "Skipped unrecognised grade column: " & headerText & "."
+                End If
             End If
         End If
     Next c
@@ -675,15 +677,19 @@ Private Function DetectEmailScheme(ByVal ws As Worksheet, ByVal gradeCol As Long
     Dim r As Long
 
     h = UCase$(Replace(headerText, " ", ""))
-    If InStr(1, h, "-G3", vbTextCompare) > 0 Or InStr(1, h, "-O", vbTextCompare) > 0 Then
+    If InStr(1, h, "-G3", vbTextCompare) > 0 Or InStr(1, h, "-EX", vbTextCompare) > 0 _
+       Or InStr(1, h, "(EX)", vbTextCompare) > 0 Or InStr(1, h, "EXPRESS", vbTextCompare) > 0 _
+       Or InStr(1, h, "-O", vbTextCompare) > 0 Then
         DetectEmailScheme = "G3"
         Exit Function
     End If
-    If InStr(1, h, "-G2", vbTextCompare) > 0 Then
+    If InStr(1, h, "-G2", vbTextCompare) > 0 Or InStr(1, h, "N(A)", vbTextCompare) > 0 _
+       Or InStr(1, h, "-NA", vbTextCompare) > 0 Or InStr(1, h, "NORMALACADEMIC", vbTextCompare) > 0 Then
         DetectEmailScheme = "G2"
         Exit Function
     End If
-    If InStr(1, h, "-G1", vbTextCompare) > 0 Then
+    If InStr(1, h, "-G1", vbTextCompare) > 0 Or InStr(1, h, "N(T)", vbTextCompare) > 0 _
+       Or InStr(1, h, "-NT", vbTextCompare) > 0 Or InStr(1, h, "NORMALTECH", vbTextCompare) > 0 Then
         DetectEmailScheme = "G1"
         Exit Function
     End If
@@ -2053,6 +2059,48 @@ Private Function StripEmailGradeSuffix(ByVal headerText As String) As String
     s = Trim$(headerText)
     If UCase$(Right$(s, 7)) = "(GRADE)" Then s = Trim$(Left$(s, Len(s) - 7))
     StripEmailGradeSuffix = s
+End Function
+
+Private Function IsExcludedEmailSubject(ByVal subjectName As String) As Boolean
+    Dim ws As Worksheet
+    Dim r As Long
+    Dim subjectKey As String, excludedKey As String
+
+    subjectKey = NormalizeEmailSubjectKey(subjectName)
+    If subjectKey = "" Then Exit Function
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(SETTINGS_SHEET)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    For r = 2 To 100
+        excludedKey = NormalizeEmailSubjectKey(CStr(ws.Cells(r, "V").value))
+        If excludedKey <> "" And excludedKey = subjectKey Then
+            IsExcludedEmailSubject = True
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function NormalizeEmailSubjectKey(ByVal subjectName As String) As String
+    Dim s As String
+    Dim suffix As Variant
+
+    s = Trim$(subjectName)
+    If UCase$(Right$(s, 7)) = "(GRADE)" Then s = Trim$(Left$(s, Len(s) - 7))
+    If UCase$(Right$(s, 7)) = "(SCORE)" Then s = Trim$(Left$(s, Len(s) - 7))
+    s = UCase$(Replace(Trim$(s), " ", ""))
+
+    For Each suffix In Array("-G1", "-G2", "-G3", "-N(T)", "-N(A)", _
+                             "-NT", "-NA", "-EX", "-O")
+        If Right$(s, Len(CStr(suffix))) = CStr(suffix) Then
+            s = Trim$(Left$(s, Len(s) - Len(CStr(suffix))))
+            Exit For
+        End If
+    Next suffix
+
+    NormalizeEmailSubjectKey = s
 End Function
 
 Private Function GetEmailSubjectDisplayName(ByVal sourceName As String) As String
