@@ -1008,7 +1008,7 @@ Private Sub DraftAllLevelsManagementSummary()
     If summaryMode = "STREAM" Then
         BuildPrelimStreamSummaries gAllLevelSheets, streamSummaries, streamSummaryCount
         If streamSummaryCount = 0 Then
-            MsgBox "No EX, NA or NT student groups were found in the matching AtRisk sheets." & vbCrLf & _
+            MsgBox "No 4EX, 4NA, 4NT or 5NA student groups were found in the matching AtRisk sheets." & vbCrLf & _
                    "Check Settings column D:E and rebuild the AtRisk summaries.", _
                    vbExclamation, "PRELIM Stream Breakdown"
             Exit Sub
@@ -1162,17 +1162,18 @@ Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
     Dim lastRow As Long, r As Long, i As Long, streamIndex As Long
     Dim attemptedCount As Long, passedCount As Long, failedCount As Long, distinctionCount As Long
     Dim classText As String, regText As String, nameText As String, keyText As String
-    Dim streamCode As String
+    Dim streamCode As String, levelDigit As String
     Dim groupedCount As Long, unmappedCount As Long
     Dim seen As Object
 
     summaryCount = 0
     If sourceSheets Is Nothing Then Exit Sub
 
-    ReDim summaries(1 To 3)
-    summaries(1).LevelText = "EX"
-    summaries(2).LevelText = "NA"
-    summaries(3).LevelText = "NT"
+    ReDim summaries(1 To 4)
+    summaries(1).LevelText = "4EX"
+    summaries(2).LevelText = "4NA"
+    summaries(3).LevelText = "4NT"
+    summaries(4).LevelText = "5NA"
 
     Set seen = CreateObject("Scripting.Dictionary")
     seen.CompareMode = vbTextCompare
@@ -1181,6 +1182,8 @@ Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
         Set sourceWs = sourceSheets(i)
         assessmentName = "": yearText = "": levelText = ""
         GetSourceLabels sourceWs, assessmentName, yearText, levelText
+        levelDigit = FirstLevelDigit(levelText)
+        If levelDigit <> "4" And levelDigit <> "5" Then GoTo NextSourceSheet
         expectedSheetName = BuildManagementAtRiskSheetName(levelText, assessmentName, yearText)
 
         Set atRiskWs = Nothing
@@ -1220,7 +1223,7 @@ Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
 
             If nameText <> "" And (attemptedCount > 0 Or passedCount > 0 Or failedCount > 0) Then
                 streamCode = NormalizeManagementStream(CStr(atRiskWs.Cells(r, groupCol).value))
-                streamIndex = ManagementStreamIndex(streamCode)
+                streamIndex = ManagementStreamIndex(levelDigit, streamCode)
                 If streamIndex = 0 Then
                     unmappedCount = unmappedCount + 1
                 Else
@@ -1237,15 +1240,16 @@ Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
                 End If
             End If
         Next r
+NextSourceSheet:
     Next i
 
     If unmappedCount > 0 Then
         Err.Raise vbObjectError + 2113, "BuildPrelimStreamSummaries", _
-                  CStr(unmappedCount) & " student(s) with valid results do not have an EX, NA or NT group." & vbCrLf & _
+                  CStr(unmappedCount) & " student(s) with valid results do not map to 4EX, 4NA, 4NT or 5NA." & vbCrLf & _
                   "Complete the class-to-stream mappings in Settings column D:E and rebuild the AtRisk summaries."
     End If
 
-    If groupedCount > 0 Then summaryCount = 3
+    If groupedCount > 0 Then summaryCount = 4
 End Sub
 
 Private Function NormalizeManagementStream(ByVal rawGroup As String) As String
@@ -1264,11 +1268,13 @@ Private Function NormalizeManagementStream(ByVal rawGroup As String) As String
     End Select
 End Function
 
-Private Function ManagementStreamIndex(ByVal streamCode As String) As Long
-    Select Case UCase$(Trim$(streamCode))
-        Case "EX": ManagementStreamIndex = 1
-        Case "NA": ManagementStreamIndex = 2
-        Case "NT": ManagementStreamIndex = 3
+Private Function ManagementStreamIndex(ByVal levelDigit As String, _
+                                       ByVal streamCode As String) As Long
+    Select Case Trim$(levelDigit) & UCase$(Trim$(streamCode))
+        Case "4EX": ManagementStreamIndex = 1
+        Case "4NA": ManagementStreamIndex = 2
+        Case "4NT": ManagementStreamIndex = 3
+        Case "5NA": ManagementStreamIndex = 4
     End Select
 End Function
 
@@ -1770,6 +1776,12 @@ End Function
 
 Private Function ManagementLevelLabel(ByVal levelText As String) As String
     Dim levelDigit As String
+    Select Case UCase$(Trim$(levelText))
+        Case "4EX", "4NA", "4NT", "5NA"
+            ManagementLevelLabel = UCase$(Trim$(levelText))
+            Exit Function
+    End Select
+
     levelDigit = FirstLevelDigit(levelText)
     If levelDigit <> "" Then
         ManagementLevelLabel = "Sec " & levelDigit
@@ -2466,7 +2478,7 @@ Private Function ResolvePrelimManagementSummaryMode(ByVal assessmentName As Stri
             ResolvePrelimManagementSummaryMode = "STREAM"
         Case Else
             answer = MsgBox("Choose the PRELIM management-summary version:" & vbCrLf & vbCrLf & _
-                            "Yes  - EX / NA / NT stream breakdown" & vbCrLf & _
+                            "Yes  - 4EX / 4NA / 4NT / 5NA breakdown" & vbCrLf & _
                             "No   - existing Sec-level breakdown" & vbCrLf & _
                             "Cancel - stop drafting", _
                             vbYesNoCancel + vbQuestion, "PRELIM Summary Version")
