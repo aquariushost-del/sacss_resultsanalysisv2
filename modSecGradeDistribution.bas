@@ -1446,7 +1446,14 @@ NextSubject:
             wsOut.Cells(outRow, 12).value = attemptedSubjects
             wsOut.Cells(outRow, 13).value = vrSubjects
             wsOut.Cells(outRow, 14).value = abSubjects
-            displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
+            ' Legacy Sec 5 is the 5NA cohort even though its subjects use
+            ' the G3/O-Level grade scheme. Keep the cohort label separate
+            ' from the subject scheme used for pass/distinction calculations.
+            If UCase$(Trim$(levelCode)) = "S5" Then
+                displayGroup = "NA"
+            Else
+                displayGroup = MapGroupLabelForMode(fsbbGroup, levelMode)
+            End If
             wsOut.Cells(outRow, 15).value = displayGroup
             wsOut.Cells(outRow, 16).value = distinctionCount
 
