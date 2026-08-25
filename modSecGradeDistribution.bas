@@ -13,6 +13,8 @@ Private Const NAV_BTN_WIDTH_FACTOR As Double = 0.5
 Private Const LEVEL_MODE_AUTO_FSBB As String = "AUTO_FSBB"
 Private Const LEVEL_MODE_LEGACY_NO_DOWNWARD As String = "LEGACY_NO_DOWNWARD"
 
+Private gSecBatchMode As Boolean
+
 Private Type TopStudentRec
     LevelCode As String
     ClassName As String
@@ -47,6 +49,43 @@ End Type
 '---------------------------------------------------------
 ' ENTRY POINT - RUN ONCE, DOES ALL ELIGIBLE SHEETS
 '---------------------------------------------------------
+Public Sub BuildAllSecReportsAndMenus()
+    Dim previousScreenUpdating As Boolean
+    Dim errorText As String
+
+    On Error GoTo ErrHandler
+
+    previousScreenUpdating = Application.ScreenUpdating
+    Application.ScreenUpdating = False
+    gSecBatchMode = True
+
+    Application.StatusBar = "1 of 4: Analysing SEC subjects..."
+    BuildAllSec_SubjectAnalysis
+
+    Application.StatusBar = "2 of 4: Building SEC AtRisk summaries..."
+    BuildSec_AtRiskSummary
+
+    Application.StatusBar = "3 of 4: Building SEC Top Students summaries..."
+    BuildSec_TopQualityByLevel
+
+    Application.StatusBar = "4 of 4: Refreshing the SEC menu..."
+    BuildSubjectAnalysisNavigation
+
+    gSecBatchMode = False
+    Application.StatusBar = False
+    Application.ScreenUpdating = previousScreenUpdating
+    MsgBox "SEC subject analysis, AtRisk summaries, Top Students summaries and menus have been refreshed.", _
+           vbInformation, "SEC Reports Complete"
+    Exit Sub
+
+ErrHandler:
+    errorText = Err.Description
+    gSecBatchMode = False
+    Application.StatusBar = False
+    Application.ScreenUpdating = previousScreenUpdating
+    MsgBox "The SEC report run stopped: " & errorText, vbCritical, "SEC Reports"
+End Sub
+
 Public Sub BuildAllSec_SubjectAnalysis()
     Dim wb As Workbook
     Dim ws As Worksheet
@@ -59,11 +98,15 @@ Public Sub BuildAllSec_SubjectAnalysis()
         ProcessSecSourceSheet ws
     Next ws
 
-    MsgBox "Subject Analysis generated for all eligible sheets.", vbInformation
+    If Not gSecBatchMode Then MsgBox "Subject Analysis generated for all eligible sheets.", vbInformation
     Exit Sub
 
 ErrHandler:
-    MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
+    If gSecBatchMode Then
+        Err.Raise Err.Number, "BuildAllSec_SubjectAnalysis", Err.Description
+    Else
+        MsgBox "Error in BuildAllSec_SubjectAnalysis: " & Err.Description, vbCritical
+    End If
 End Sub
 
 Private Sub CollectSecReportGroups(ByRef groups() As SecReportGroup, _
@@ -303,11 +346,16 @@ Public Sub BuildSec_TopQualityByLevel()
 
     BuildTopQualityNavigation
 
-    MsgBox groupCount & " assessment-specific top-quality sheet(s) built.", vbInformation
+    If Not gSecBatchMode Then _
+        MsgBox groupCount & " assessment-specific top-quality sheet(s) built.", vbInformation
     Exit Sub
 
 ErrHandler:
-    MsgBox "Error in BuildSec_TopQualityByLevel: " & Err.Description, vbCritical
+    If gSecBatchMode Then
+        Err.Raise Err.Number, "BuildSec_TopQualityByLevel", Err.Description
+    Else
+        MsgBox "Error in BuildSec_TopQualityByLevel: " & Err.Description, vbCritical
+    End If
 End Sub
 
 Public Sub BuildTopQualityNavigation()
@@ -494,11 +542,16 @@ Public Sub BuildSec_AtRiskSummary()
         wb.Worksheets(groups(1).SheetName).Range("A1").Select
     End If
 
-    MsgBox groupCount & " assessment-specific at-risk sheet(s) built.", vbInformation
+    If Not gSecBatchMode Then _
+        MsgBox groupCount & " assessment-specific at-risk sheet(s) built.", vbInformation
     Exit Sub
 
 ErrHandler:
-    MsgBox "Error in BuildSec_AtRiskSummary: " & Err.Description, vbCritical
+    If gSecBatchMode Then
+        Err.Raise Err.Number, "BuildSec_AtRiskSummary", Err.Description
+    Else
+        MsgBox "Error in BuildSec_AtRiskSummary: " & Err.Description, vbCritical
+    End If
 End Sub
 
 '---------------------------------------------------------
