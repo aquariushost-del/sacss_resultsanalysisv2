@@ -1315,13 +1315,13 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, CardStart("1. Student Outcomes by Level", "")
     AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Students are classified according to the number of subjects failed, regardless of whether individual subjects are taken at G1, G2 or G3. Students with 0 attempted, 0 passed and 0 failed are retained in AtRisk for RAFA but excluded from this table.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Each student is counted once, according to the number of subjects failed, regardless of whether individual subjects are taken at G1, G2 or G3. Values show percentage (number of students).</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
     AppendHtml html, CardStart("2. Student Distinction Profile by Level", "")
     AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Bands are mutually exclusive and show percentage (number of students). Distinction = A1/A2 for G3 or EX/O-Level; 1/2 for G2 or NA/N(A); and A only for G1 or NT/N(T). AB is not a distinction; VR/MC and subjects excluded in Settings column V are disregarded. Students with no counted subjects are excluded.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3. Values show percentage (number of students). Distinction = A1/A2 for G3 or EX/O-Level; 1/2 for G2 or NA/N(A); and A only for G1 or NT/N(T).</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
@@ -1370,21 +1370,28 @@ End Function
 Private Function BuildManagementDistinctionOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
                                                           ByVal summaryCount As Long) As String
     Dim html As String, i As Long
+    Dim atLeastOne As Long, atLeastTwo As Long, atLeastThree As Long
+    Dim atLeastFour As Long, atLeastFive As Long
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & _
-           HeaderTd("No Distinction") & HeaderTd("1 Distinction") & _
-           HeaderTd("2 Distinctions") & HeaderTd("3 Distinctions") & _
-           HeaderTd("4 Distinctions") & HeaderTd("5+ Distinctions") & "</tr>"
+           HeaderTd("At least 1 Distinction") & HeaderTd("At least 2 Distinctions") & _
+           HeaderTd("At least 3 Distinctions") & HeaderTd("At least 4 Distinctions") & _
+           HeaderTd("At least 5 Distinctions") & "</tr>"
 
     For i = 1 To summaryCount
         If summaries(i).DistinctionStudentCount > 0 Then
+            atLeastFive = summaries(i).FivePlusDistinctionStudentCount
+            atLeastFour = summaries(i).FourDistinctionStudentCount + atLeastFive
+            atLeastThree = summaries(i).ThreeDistinctionStudentCount + atLeastFour
+            atLeastTwo = summaries(i).TwoDistinctionStudentCount + atLeastThree
+            atLeastOne = summaries(i).OneDistinctionStudentCount + atLeastTwo
+
             html = html & "<tr>" & TextTd(ManagementLevelLabel(summaries(i).LevelText), "#1f4e79") & _
-                   OutcomeTd(summaries(i).NoDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#60788e", "#f7f9fb") & _
-                   OutcomeTd(summaries(i).OneDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#385a78", "#ffffff") & _
-                   OutcomeTd(summaries(i).TwoDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#1f4e79", "#eef5fb") & _
-                   OutcomeTd(summaries(i).ThreeDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#4472c4", "#eaf0fb") & _
-                   OutcomeTd(summaries(i).FourDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#548235", "#edf6e8") & _
-                   OutcomeTd(summaries(i).FivePlusDistinctionStudentCount, summaries(i).DistinctionStudentCount, "#2f6b2f", "#e2f0d9") & "</tr>"
+                   OutcomeTd(atLeastOne, summaries(i).DistinctionStudentCount, "#385a78", "#ffffff") & _
+                   OutcomeTd(atLeastTwo, summaries(i).DistinctionStudentCount, "#1f4e79", "#eef5fb") & _
+                   OutcomeTd(atLeastThree, summaries(i).DistinctionStudentCount, "#4472c4", "#eaf0fb") & _
+                   OutcomeTd(atLeastFour, summaries(i).DistinctionStudentCount, "#548235", "#edf6e8") & _
+                   OutcomeTd(atLeastFive, summaries(i).DistinctionStudentCount, "#2f6b2f", "#e2f0d9") & "</tr>"
         End If
     Next i
 
