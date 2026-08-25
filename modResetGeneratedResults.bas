@@ -30,6 +30,7 @@ Public Sub DeleteAllGeneratedResultTabs()
     Dim deletedCount As Long
     Dim oldDisplayAlerts As Boolean
     Dim oldScreenUpdating As Boolean
+    Dim hasGeneratedMenus As Boolean
 
     Set wb = ThisWorkbook
     Set targets = New Collection
@@ -44,17 +45,23 @@ Public Sub DeleteAllGeneratedResultTabs()
         If IsGeneratedResultSheet(ws) Then targets.Add ws.Name
     Next ws
 
-    If targets.count = 0 Then
+    hasGeneratedMenus = HasGeneratedDashboardMenus(wb)
+    If targets.count = 0 And Not hasGeneratedMenus Then
         MsgBox "No generated staging or results tabs were found." & vbCrLf & _
-               "Settings, Dashboard, Logs and configuration sheets were not changed.", _
+               "No generated Dashboard menus were found.", _
                vbInformation, "Reset Generated Results"
         Exit Sub
     End If
 
-    previewText = BuildDeletionPreview(targets, 24)
+    If targets.count > 0 Then
+        previewText = BuildDeletionPreview(targets, 24)
+    Else
+        previewText = "  - No generated worksheets; only generated Dashboard menus will be cleared." & vbCrLf
+    End If
     answer = MsgBox( _
         "The following " & targets.count & " generated worksheet(s) will be permanently deleted:" & _
         vbCrLf & vbCrLf & previewText & vbCrLf & _
+        "Generated Dashboard menus and navigation buttons will also be cleared." & vbCrLf & _
         "Settings, Dashboard, Logs and configuration/template sheets will be kept." & vbCrLf & vbCrLf & _
         "This cannot be undone in Excel. Continue?", _
         vbYesNo + vbCritical + vbDefaultButton2, _
@@ -69,6 +76,8 @@ Public Sub DeleteAllGeneratedResultTabs()
 
     On Error GoTo DeleteFail
 
+    ClearGeneratedDashboardMenus wb
+
     For Each targetName In targets
         wb.Worksheets(CStr(targetName)).Delete
         deletedCount = deletedCount + 1
@@ -79,6 +88,7 @@ CleanExit:
     Application.ScreenUpdating = oldScreenUpdating
 
     MsgBox deletedCount & " generated worksheet(s) deleted." & vbCrLf & _
+           "Generated Dashboard menus were cleared." & vbCrLf & _
            "Settings, Dashboard, Logs and configuration/template sheets were preserved." & vbCrLf & _
            "You can now run ParseCockpitFiles_ToStaging or ParseCockpitFolder_ToStaging.", _
            vbInformation, "Reset Complete"
@@ -90,6 +100,65 @@ DeleteFail:
     MsgBox "Reset stopped after deleting " & deletedCount & " worksheet(s)." & vbCrLf & _
            "Error: " & Err.Description, vbCritical, "Reset Incomplete"
 End Sub
+
+'------------------------------------------------------------
+' GENERATED DASHBOARD MENUS
+'------------------------------------------------------------
+Private Function HasGeneratedDashboardMenus(ByVal wb As Workbook) As Boolean
+    Dim ws As Worksheet
+    Dim shp As Shape
+
+    On Error Resume Next
+    Set ws = wb.Worksheets("Dashboard")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    If Trim$(CStr(ws.Range("G3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("M3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("P3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("T3").value)) <> "" Then
+        HasGeneratedDashboardMenus = True
+        Exit Function
+    End If
+
+    For Each shp In ws.Shapes
+        If IsGeneratedMenuShape(shp.Name) Then
+            HasGeneratedDashboardMenus = True
+            Exit Function
+        End If
+    Next shp
+End Function
+
+Private Sub ClearGeneratedDashboardMenus(ByVal wb As Workbook)
+    Dim ws As Worksheet
+    Dim k As Long
+
+    On Error Resume Next
+    Set ws = wb.Worksheets("Dashboard")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+
+    ' These are the exact cell blocks owned by the generated menus.
+    ws.Range("G3:L203").Clear
+    ws.Range("M3:S223").Clear
+    ws.Range("T3:Y203").Clear
+
+    For k = ws.Shapes.count To 1 Step -1
+        If IsGeneratedMenuShape(ws.Shapes(k).Name) Then ws.Shapes(k).Delete
+    Next k
+End Sub
+
+Private Function IsGeneratedMenuShape(ByVal shapeName As String) As Boolean
+    Dim nm As String
+    nm = UCase$(Trim$(shapeName))
+
+    IsGeneratedMenuShape = _
+        (Left$(nm, Len("NAV_SUBJ_")) = "NAV_SUBJ_") Or _
+        (Left$(nm, Len("NAV_ATRISK_")) = "NAV_ATRISK_") Or _
+        (Left$(nm, Len("NAV_TOPQUAL_")) = "NAV_TOPQUAL_") Or _
+        (Left$(nm, Len("NAV_IP_")) = "NAV_IP_") Or _
+        (Left$(nm, Len("NAV_FP_")) = "NAV_FP_")
+End Function
 
 '------------------------------------------------------------
 ' DETECTION
