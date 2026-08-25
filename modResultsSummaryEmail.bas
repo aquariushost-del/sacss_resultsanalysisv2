@@ -1222,8 +1222,16 @@ Private Sub BuildPrelimStreamSummaries(ByVal sourceSheets As Collection, _
             distinctionCount = EmailLongValue(atRiskWs.Cells(r, distinctionCol).value)
 
             If nameText <> "" And (attemptedCount > 0 Or passedCount > 0 Or failedCount > 0) Then
-                streamCode = NormalizeManagementStream(CStr(atRiskWs.Cells(r, groupCol).value))
-                streamIndex = ManagementStreamIndex(levelDigit, streamCode)
+                ' The PRELIM Sec 5 cohort is 5NA even though its subjects use
+                ' the G3 grade scheme and an older AtRisk output may therefore
+                ' show G3/EX in the Group column. Subject-level distinction
+                ' rules remain unchanged and are already reflected in column P.
+                If levelDigit = "5" Then
+                    streamIndex = 4
+                Else
+                    streamCode = NormalizeManagementStream(CStr(atRiskWs.Cells(r, groupCol).value))
+                    streamIndex = ManagementStreamIndex(levelDigit, streamCode)
+                End If
                 If streamIndex = 0 Then
                     unmappedCount = unmappedCount + 1
                 Else
@@ -1245,8 +1253,8 @@ NextSourceSheet:
 
     If unmappedCount > 0 Then
         Err.Raise vbObjectError + 2113, "BuildPrelimStreamSummaries", _
-                  CStr(unmappedCount) & " student(s) with valid results do not map to 4EX, 4NA, 4NT or 5NA." & vbCrLf & _
-                  "Complete the class-to-stream mappings in Settings column D:E and rebuild the AtRisk summaries."
+                  CStr(unmappedCount) & " Sec 4 student(s) with valid results do not map to 4EX, 4NA or 4NT." & vbCrLf & _
+                  "Complete the Sec 4 class-to-stream mappings in Settings column D:E and rebuild the AtRisk summaries."
     End If
 
     If groupedCount > 0 Then summaryCount = 4
