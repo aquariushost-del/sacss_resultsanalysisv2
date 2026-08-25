@@ -2107,6 +2107,8 @@ Public Sub BuildSecSubjectGradeDistribution( _
         .ChartGroups(1).GapWidth = 30
     End With
 
+    SetSecChartPlotArea co
+
     ' Validity panel (scheme-aware)
     EvaluateDistributionForScheme totalArr, total, schemeKey, validityFlag, patternType, line1, line2, line3
     DrawValidityPanel wsDest, co, validityFlag, patternType, line1, line2, line3
@@ -2196,6 +2198,7 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
             co.Left = ws.Columns(anchorCol).Left
             co.Width = ws.Columns(anchorCol).Resize(, 6).Width
             co.Height = ws.Rows(titleRow).Resize(endRow - titleRow + 1).Height
+            SetSecChartPlotArea co
         End If
     Next co
 
@@ -2218,6 +2221,32 @@ Private Sub RealignSecAnalysisObjects(ByVal ws As Worksheet)
     Next shp
 
 AlignmentDone:
+End Sub
+
+Private Sub SetSecChartPlotArea(ByVal co As ChartObject)
+    Dim insideLeft As Double, insideTop As Double
+    Dim insideWidth As Double, insideHeight As Double
+
+    If co Is Nothing Then Exit Sub
+
+    ' Excel otherwise chooses a different internal top margin as chart height
+    ' changes. Keep the visible y-axis/plot near the table-header row, leaving
+    ' enough room above bars for their data labels and below for categories.
+    insideLeft = 32
+    insideTop = 15
+    insideWidth = co.Width - insideLeft - 6
+    insideHeight = co.Height - insideTop - 22
+    If insideWidth < 30 Or insideHeight < 20 Then Exit Sub
+
+    On Error Resume Next
+    co.Chart.Refresh
+    With co.Chart.PlotArea
+        .InsideLeft = insideLeft
+        .InsideTop = insideTop
+        .InsideWidth = insideWidth
+        .InsideHeight = insideHeight
+    End With
+    On Error GoTo 0
 End Sub
 
 Private Function ParseSecChartAnchor(ByVal chartName As String, _
