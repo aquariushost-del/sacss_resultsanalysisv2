@@ -1011,8 +1011,10 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
     Dim idxCount As Long
     Dim i As Long, j As Long
     Dim r As Long, rankNo As Long
+    Dim tableHeaderRow As Long, lastDataRow As Long
     Dim key As String, tmpKey As String
     Dim currentScore As Double
+    Dim subjectName As String, schemeKey As String
 
     With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
         .Merge
@@ -1022,7 +1024,7 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         .Font.Color = RGB(31, 78, 121)
         .Interior.Color = RGB(221, 235, 247)
     End With
-    startRow = startRow + 1
+    startRow = startRow + 2
 
     If recCount = 0 Then
         wsOut.Cells(startRow, 1).value = "(No valid numeric subject scores found.)"
@@ -1031,24 +1033,12 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         Exit Function
     End If
 
-    wsOut.Cells(startRow, 1).value = "Subject"
-    wsOut.Cells(startRow, 2).value = "G-Level"
-    wsOut.Cells(startRow, 3).value = "Rank"
-    wsOut.Cells(startRow, 4).value = "Class"
-    wsOut.Cells(startRow, 5).value = "RegNo"
-    wsOut.Cells(startRow, 6).value = "Name"
-    wsOut.Cells(startRow, 7).value = "Score %"
-    wsOut.Cells(startRow, 8).value = "Grade"
-    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 8))
-        .Font.Bold = True
-        .Interior.Color = RGB(238, 245, 251)
-    End With
-    r = startRow + 1
+    r = startRow
 
     Set subjectMap = CreateObject("Scripting.Dictionary")
     subjectMap.CompareMode = vbTextCompare
     For i = 1 To recCount
-        key = UCase$(Trim$(recs(i).SubjectName)) & "|" & UCase$(Trim$(recs(i).SchemeKey))
+        key = SubjectTopSortKey(recs(i).SubjectName, recs(i).SchemeKey)
         If Not subjectMap.Exists(key) Then subjectMap.Add key, key
     Next i
     keys = subjectMap.Keys
@@ -1065,7 +1055,7 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         idxCount = 0
         Erase idx
         For j = 1 To recCount
-            key = UCase$(Trim$(recs(j).SubjectName)) & "|" & UCase$(Trim$(recs(j).SchemeKey))
+            key = SubjectTopSortKey(recs(j).SubjectName, recs(j).SchemeKey)
             If StrComp(key, CStr(keys(i)), vbTextCompare) = 0 Then
                 idxCount = idxCount + 1
                 If idxCount = 1 Then
@@ -1078,6 +1068,35 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         Next j
 
         SortSubjectTopIndexes recs, idx, idxCount
+        subjectName = recs(idx(1)).SubjectName
+        schemeKey = recs(idx(1)).SchemeKey
+
+        With wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 10))
+            .Merge
+            .value = subjectName & " [" & schemeKey & "] - Top 3 by Percentage"
+            .Font.Bold = True
+            .Font.Size = 11
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+        End With
+        StyleSubjectTopBlockTitle wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 10)), schemeKey
+        wsOut.Rows(r).RowHeight = 22
+        r = r + 1
+
+        tableHeaderRow = r
+        wsOut.Cells(r, 1).value = "Rank"
+        wsOut.Cells(r, 2).value = "Class"
+        wsOut.Cells(r, 3).value = "RegNo"
+        wsOut.Cells(r, 4).value = "Name"
+        wsOut.Cells(r, 5).value = "Score %"
+        wsOut.Cells(r, 6).value = "Grade"
+        With wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 6))
+            .Font.Bold = True
+            .Interior.Color = RGB(242, 246, 250)
+            .HorizontalAlignment = xlCenter
+        End With
+        r = r + 1
+
         rankNo = 0
         currentScore = -1#
         For j = 1 To idxCount
@@ -1085,21 +1104,65 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
             If rankNo > 3 Then Exit For
             currentScore = recs(idx(j)).ScorePct
 
-            wsOut.Cells(r, 1).value = recs(idx(j)).SubjectName
-            wsOut.Cells(r, 2).value = recs(idx(j)).SchemeKey
-            wsOut.Cells(r, 3).value = rankNo
-            wsOut.Cells(r, 4).value = recs(idx(j)).ClassName
-            wsOut.Cells(r, 5).value = recs(idx(j)).RegNo
-            wsOut.Cells(r, 6).value = recs(idx(j)).StudentName
-            wsOut.Cells(r, 7).value = recs(idx(j)).ScorePct
-            wsOut.Cells(r, 7).NumberFormat = "0.0"
-            wsOut.Cells(r, 8).value = recs(idx(j)).GradeText
+            wsOut.Cells(r, 1).value = rankNo
+            wsOut.Cells(r, 2).value = recs(idx(j)).ClassName
+            wsOut.Cells(r, 3).value = recs(idx(j)).RegNo
+            wsOut.Cells(r, 4).value = recs(idx(j)).StudentName
+            wsOut.Cells(r, 5).value = recs(idx(j)).ScorePct
+            wsOut.Cells(r, 5).NumberFormat = "0.0"
+            wsOut.Cells(r, 6).value = recs(idx(j)).GradeText
+            StyleSubjectTopRankRow wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 6)), rankNo
             r = r + 1
         Next j
+        lastDataRow = r - 1
+        With wsOut.Range(wsOut.Cells(tableHeaderRow, 1), wsOut.Cells(lastDataRow, 6)).Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(205, 215, 225)
+            .Weight = xlThin
+        End With
+        r = r + 1
     Next i
 
-    WriteSubjectTopPerformersSection = r + 2
+    WriteSubjectTopPerformersSection = r + 1
 End Function
+
+Private Function SubjectTopSortKey(ByVal subjectName As String, _
+                                   ByVal schemeKey As String) As String
+    Dim schemeOrder As String
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3": schemeOrder = "1"
+        Case "G2": schemeOrder = "2"
+        Case "G1": schemeOrder = "3"
+        Case Else: schemeOrder = "9"
+    End Select
+    SubjectTopSortKey = schemeOrder & "|" & UCase$(Trim$(subjectName)) & "|" & UCase$(Trim$(schemeKey))
+End Function
+
+Private Sub StyleSubjectTopBlockTitle(ByVal titleRange As Range, _
+                                      ByVal schemeKey As String)
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            titleRange.Interior.Color = RGB(221, 235, 247)
+            titleRange.Font.Color = RGB(31, 78, 121)
+        Case "G2"
+            titleRange.Interior.Color = RGB(226, 240, 217)
+            titleRange.Font.Color = RGB(55, 86, 35)
+        Case "G1"
+            titleRange.Interior.Color = RGB(255, 242, 204)
+            titleRange.Font.Color = RGB(127, 96, 0)
+        Case Else
+            titleRange.Interior.Color = RGB(242, 242, 242)
+            titleRange.Font.Color = RGB(89, 89, 89)
+    End Select
+End Sub
+
+Private Sub StyleSubjectTopRankRow(ByVal rowRange As Range, ByVal rankNo As Long)
+    Select Case rankNo
+        Case 1: rowRange.Interior.Color = RGB(255, 242, 204)
+        Case 2: rowRange.Interior.Color = RGB(242, 242, 242)
+        Case 3: rowRange.Interior.Color = RGB(252, 228, 214)
+    End Select
+End Sub
 
 Private Sub SortSubjectTopIndexes(ByRef recs() As SubjectTopRec, _
                                   ByRef idx() As Long, _
@@ -1155,7 +1218,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     Dim idxCount As Long
     Dim i As Long, j As Long, tmp As Long
     Dim cutoffTop As Long, cutoffPrimary As Long, cutoffSecondary As Long
-    Dim r As Long
+    Dim r As Long, tableHeaderRow As Long
     Dim displayGroup As String
     Dim sectionTitle As String
 
@@ -1209,6 +1272,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         Next j
     Next i
 
+    tableHeaderRow = startRow
     wsOut.Cells(startRow, 1).value = "Level"
     wsOut.Cells(startRow, 2).value = "Class"
     wsOut.Cells(startRow, 3).value = "RegNo"
@@ -1221,12 +1285,18 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     wsOut.Cells(startRow, 6).NumberFormat = "@"
     wsOut.Cells(startRow, 7).NumberFormat = "@"
     wsOut.Cells(startRow, 8).NumberFormat = "@"
-    wsOut.Cells(startRow, 6).value = "Top Grades"
-    wsOut.Cells(startRow, 7).value = "1st Band"
-    wsOut.Cells(startRow, 8).value = "2nd Band"
+    wsOut.Cells(startRow, 6).value = "Top Grades" & vbLf & "(1st + 2nd Band)"
+    wsOut.Cells(startRow, 7).value = "1st Band" & vbLf & "(A1 / 1 / A)"
+    wsOut.Cells(startRow, 8).value = "2nd Band" & vbLf & "(A2 / 2 / B)"
     wsOut.Cells(startRow, 9).value = "Subject Mix"
     wsOut.Cells(startRow, 10).value = "Native Top Grades"
-    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10)).Font.Bold = True
+    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
+        .Font.Bold = True
+        .WrapText = True
+        .VerticalAlignment = xlCenter
+        .Interior.Color = RGB(250, 242, 238)
+    End With
+    wsOut.Rows(startRow).RowHeight = 32
     startRow = startRow + 1
 
     If idxCount <= topN Then
@@ -1258,6 +1328,12 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 10).value = recs(idx(i)).RawTopGrades
         r = r + 1
     Next i
+
+    With wsOut.Range(wsOut.Cells(tableHeaderRow, 1), wsOut.Cells(r - 1, 10)).Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(210, 200, 195)
+        .Weight = xlThin
+    End With
 
     WriteTopGroupSection = r + 1
 End Function
@@ -1301,10 +1377,8 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
 End Sub
 
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
-    Dim rngTable As Range
-
     wsOut.Columns("A:J").AutoFit
-    wsOut.Columns("A").ColumnWidth = 26
+    wsOut.Columns("A").ColumnWidth = 8
     wsOut.Columns("B").ColumnWidth = 12
     wsOut.Columns("C").ColumnWidth = 8
     wsOut.Columns("D").ColumnWidth = 24
@@ -1318,15 +1392,6 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
     wsOut.Columns("I").WrapText = True
     wsOut.Columns("J").ColumnWidth = 45
     wsOut.Columns("J").WrapText = True
-
-    If lastRow >= 4 Then
-        Set rngTable = wsOut.Range("A4:J" & lastRow)
-        With rngTable.Borders
-            .LineStyle = xlContinuous
-            .Color = RGB(200, 200, 200)
-            .Weight = xlThin
-        End With
-    End If
 End Sub
 
 Private Function GetLevelMode(ByVal levelCode As String) As String
