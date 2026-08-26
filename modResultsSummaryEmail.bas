@@ -1483,13 +1483,13 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
 
     AppendHtml html, CardStart("1. Student Outcomes by " & breakdownLabel, "")
     AppendHtml html, BuildManagementStudentOutcomesTable(summaries, summaryCount, breakdownLabel)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Failure figures are cumulative: a student who failed three subjects appears in the Failed &ge;1, &ge;2 and &ge;3 columns.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>The table shows whether students are succeeding across their own subject combination, regardless of whether subjects are taken at G1, G2 or G3. Failure figures are cumulative: a student who failed three subjects appears under Failed &ge;1, &ge;2 and &ge;3.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
     AppendHtml html, CardStart("2. Student Distinction Profile by " & breakdownLabel, "")
     AppendHtml html, BuildManagementDistinctionOutcomesTable(summaries, summaryCount, breakdownLabel)
-    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3.</div>"
+    AppendHtml html, "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>The table recognises strong attainment within students&rsquo; own subject combinations and does not compare performance across G1, G2 and G3. Figures are cumulative: a student with three distinctions is included under &ge;1, &ge;2 and &ge;3.</div>"
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
@@ -1574,8 +1574,10 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     lastRow = rowPtr - 1
     StyleSummaryDataTable ws, headerRow, lastRow, 5
     StyleSummaryOutcomeColumns ws, headerRow, lastRow, False
-    WriteSummaryNote ws, rowPtr, "Failure figures are cumulative: a student who failed three subjects appears in the Failed " & _
-                     geSymbol & "1, " & geSymbol & "2 and " & geSymbol & "3 columns."
+    WriteSummaryNote ws, rowPtr, "The table shows whether students are succeeding across their own subject combination, " & _
+                     "regardless of whether subjects are taken at G1, G2 or G3. Failure figures are cumulative: " & _
+                     "a student who failed three subjects appears under Failed " & geSymbol & "1, " & _
+                     geSymbol & "2 and " & geSymbol & "3."
     rowPtr = rowPtr + 2
 
     WriteSummarySectionTitle ws, rowPtr, "2. Student Distinction Profile by " & breakdownLabel
@@ -1604,7 +1606,9 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     lastRow = rowPtr - 1
     StyleSummaryDataTable ws, headerRow, lastRow, 6
     StyleSummaryOutcomeColumns ws, headerRow, lastRow, True
-    WriteSummaryNote ws, rowPtr, "Figures are cumulative: a student with three distinctions is included under " & _
+    WriteSummaryNote ws, rowPtr, "The table recognises strong attainment within students" & ChrW$(8217) & _
+                     " own subject combinations and does not compare performance across G1, G2 and G3. " & _
+                     "Figures are cumulative: a student with three distinctions is included under " & _
                      geSymbol & "1, " & geSymbol & "2 and " & geSymbol & "3."
     rowPtr = rowPtr + 2
 
