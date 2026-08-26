@@ -131,6 +131,8 @@ Private Const MGMT_MONITOR_CELL As String = "S4"
 Private Const MGMT_STRONG_PASS_CELL As String = "S5"
 Private Const MGMT_STRONG_DIST_CELL As String = "S6"
 Private Const MGMT_PRELIM_MODE_CELL As String = "S7"
+Private Const SUMMARY_DASHBOARD_BUTTON_NAME As String = "Nav_Summary"
+Private Const SUMMARY_DASHBOARD_BUTTON_RANGE As String = "M1:S2"
 
 Private gDraftAllLevels As Boolean
 Private gAllLevelSheets As Collection
@@ -1119,7 +1121,7 @@ Private Sub AddStudentMetricsFromAtRiskSheet(ByRef summary As tEmailLevelSummary
             failedCount = EmailLongValue(ws.Cells(r, failedCol).value)
             distinctionCount = EmailLongValue(ws.Cells(r, distinctionCol).value)
 
-            ' Retain all-VR/MC students in AtRisk for RAFA, but do
+            ' Retain all-VR/MC students in AtRisk for follow-up, but do
             ' not include 0/0/0 rows in management-email outcomes.
             If attemptedCount > 0 Or passedCount > 0 Or failedCount > 0 Then
                 If Not seen.Exists(keyText) Then
@@ -1624,6 +1626,8 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
                      config.MinCandidature & " students are excluded from this summary."
     rowPtr = rowPtr + 1
 
+    AddManagementSummaryDashboardButton
+
     With ws
         .Rows("1:" & rowPtr).VerticalAlignment = xlCenter
         .Tab.Color = RGB(31, 78, 121)
@@ -1637,6 +1641,54 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     ActiveWindow.FreezePanes = False
     ws.Range("A5").Select
     ActiveWindow.FreezePanes = True
+End Sub
+
+Private Sub AddManagementSummaryDashboardButton()
+    Dim wsDashboard As Worksheet
+    Dim targetRange As Range
+    Dim shp As Shape
+
+    On Error Resume Next
+    Set wsDashboard = ThisWorkbook.Worksheets("Dashboard")
+    On Error GoTo 0
+    If wsDashboard Is Nothing Then Exit Sub
+
+    Set targetRange = wsDashboard.Range(SUMMARY_DASHBOARD_BUTTON_RANGE)
+
+    On Error Resume Next
+    wsDashboard.Shapes(SUMMARY_DASHBOARD_BUTTON_NAME).Delete
+    On Error GoTo 0
+
+    Set shp = wsDashboard.Shapes.AddShape( _
+        Type:=5, _
+        Left:=targetRange.Left, _
+        Top:=targetRange.Top + 1, _
+        Width:=targetRange.Width, _
+        Height:=targetRange.Height - 2)
+
+    With shp
+        .Name = SUMMARY_DASHBOARD_BUTTON_NAME
+        .Placement = xlMoveAndSize
+        .Fill.ForeColor.RGB = RGB(31, 78, 121)
+        .Fill.Transparency = 0#
+        .line.ForeColor.RGB = RGB(21, 55, 85)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = "Management Summary"
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 12
+            .TextRange.Font.Bold = True
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+            .MarginLeft = 6
+            .MarginRight = 6
+            .MarginTop = 3
+            .MarginBottom = 3
+        End With
+    End With
+
+    wsDashboard.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'Summary'!A1"
 End Sub
 
 Private Sub StyleSummaryOutcomeColumns(ByVal ws As Worksheet, ByVal headerRow As Long, _
