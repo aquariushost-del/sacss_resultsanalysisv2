@@ -1006,7 +1006,9 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
                                                   ByRef recs() As SubjectTopRec, _
                                                   ByVal recCount As Long) As Long
     Dim subjectMap As Object
+    Dim eligibleSubjectMap As Object
     Dim keys As Variant
+    Dim subjectKey As Variant
     Dim idx() As Long
     Dim idxCount As Long
     Dim i As Long, j As Long
@@ -1015,6 +1017,9 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
     Dim key As String, tmpKey As String
     Dim currentScore As Double
     Dim subjectName As String, schemeKey As String
+    Dim minSubjectN As Long
+
+    minSubjectN = GetMinSubjectN()
 
     With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
         .Merge
@@ -1024,7 +1029,14 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         .Font.Color = RGB(31, 78, 121)
         .Interior.Color = RGB(221, 235, 247)
     End With
-    startRow = startRow + 2
+    With wsOut.Range(wsOut.Cells(startRow + 1, 1), wsOut.Cells(startRow + 1, 10))
+        .Merge
+        .value = "Subjects with fewer than " & minSubjectN & _
+                 " valid numeric scores are excluded (Settings!L6)."
+        .Font.Italic = True
+        .Font.Color = RGB(89, 89, 89)
+    End With
+    startRow = startRow + 3
 
     If recCount = 0 Then
         wsOut.Cells(startRow, 1).value = "(No valid numeric subject scores found.)"
@@ -1039,9 +1051,28 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
     subjectMap.CompareMode = vbTextCompare
     For i = 1 To recCount
         key = SubjectTopSortKey(recs(i).SubjectName, recs(i).SchemeKey)
-        If Not subjectMap.Exists(key) Then subjectMap.Add key, key
+        If subjectMap.Exists(key) Then
+            subjectMap(key) = CLng(subjectMap(key)) + 1
+        Else
+            subjectMap.Add key, 1
+        End If
     Next i
-    keys = subjectMap.Keys
+
+    Set eligibleSubjectMap = CreateObject("Scripting.Dictionary")
+    eligibleSubjectMap.CompareMode = vbTextCompare
+    For Each subjectKey In subjectMap.Keys
+        If CLng(subjectMap(subjectKey)) >= minSubjectN Then _
+            eligibleSubjectMap.Add CStr(subjectKey), CStr(subjectKey)
+    Next subjectKey
+
+    If eligibleSubjectMap.Count = 0 Then
+        wsOut.Cells(startRow, 1).value = "(No subjects meet the minimum candidature of " & minSubjectN & ".)"
+        wsOut.Cells(startRow, 1).Font.Italic = True
+        WriteSubjectTopPerformersSection = startRow + 2
+        Exit Function
+    End If
+
+    keys = eligibleSubjectMap.Keys
 
     For i = LBound(keys) To UBound(keys) - 1
         For j = i + 1 To UBound(keys)
@@ -1666,7 +1697,7 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
 NextSubject:
         Next i
 
-        ' Keep students whose release contains only VR/MC for RAFA
+        ' Keep students whose release contains only VR/MC for follow-up
         ' follow-up, but classify them as MONITOR rather than OK.
         ' Completely blank rows remain excluded. AB is a counted
         ' outcome and contributes one failure.
@@ -1968,7 +1999,7 @@ Private Sub PrepareAtRiskSheet(ByVal wsOut As Worksheet, ByVal levelCode As Stri
     wsOut.Range("A1").Font.Size = 14
 
     wsOut.Range("A2").value = "At-risk rule: Failed Subjects >= " & threshold & _
-                              " (AB considered 0 marks; all-VR/MC students retained as MONITOR for RAFA)"
+                              " (AB considered 0 marks; all-VR/MC students retained as MONITOR)"
     wsOut.Range("A2").Font.Italic = True
 
     wsOut.Cells(4, 1).value = "Level"
