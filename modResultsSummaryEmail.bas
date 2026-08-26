@@ -136,7 +136,6 @@ Private gDraftAllLevels As Boolean
 Private gAllLevelSheets As Collection
 Private gSelectedExamLabel As String
 Private gSelectedYear As String
-Private gManagementSummaryBuilt As Boolean
 
 '------------------------------------------------------------
 ' PUBLIC ENTRY POINT
@@ -183,37 +182,6 @@ Public Sub DraftResultsSummaryEmail()
 
 ErrHandler:
     MsgBox "Could not create the results-summary draft: " & Err.Description, vbCritical
-End Sub
-
-' Build the formatted management Summary worksheet without opening Outlook.
-' Returns True only when an ALL LEVELS summary was successfully created.
-Public Function BuildResultsSummaryWorksheetForBatch() As Boolean
-    Dim wsSrc As Worksheet
-
-    Set wsSrc = SelectEmailSourceByAssessment()
-    If wsSrc Is Nothing Then Exit Function
-
-    If Not gDraftAllLevels Then
-        MsgBox "The Summary worksheet uses the all-level management view." & vbCrLf & _
-               "Run the step again and choose 0 - ALL LEVELS.", _
-               vbExclamation, "Build Summary Worksheet"
-        Exit Function
-    End If
-
-    gManagementSummaryBuilt = False
-    DraftAllLevelsManagementSummary False
-    BuildResultsSummaryWorksheetForBatch = gManagementSummaryBuilt
-End Function
-
-Public Sub BuildResultsSummaryWorksheet()
-    On Error GoTo ErrHandler
-    If BuildResultsSummaryWorksheetForBatch() Then
-        MsgBox "The Summary worksheet has been refreshed.", vbInformation, "Summary Complete"
-    End If
-    Exit Sub
-
-ErrHandler:
-    MsgBox "Could not build the Summary worksheet: " & Err.Description, vbCritical, "Summary"
 End Sub
 
 '------------------------------------------------------------
@@ -1011,7 +979,7 @@ End Function
 '------------------------------------------------------------
 ' ALL-LEVELS MANAGEMENT SUMMARY
 '------------------------------------------------------------
-Private Sub DraftAllLevelsManagementSummary(Optional ByVal createOutlookDraft As Boolean = True)
+Private Sub DraftAllLevelsManagementSummary()
     Dim summaries() As tEmailLevelSummary
     Dim summaryCount As Long
     Dim streamSummaries() As tEmailLevelSummary
@@ -1022,7 +990,6 @@ Private Sub DraftAllLevelsManagementSummary(Optional ByVal createOutlookDraft As
     Dim htmlBody As String
     Dim summaryMode As String
 
-    gManagementSummaryBuilt = False
     If gAllLevelSheets Is Nothing Then Exit Sub
     If gAllLevelSheets.count = 0 Then Exit Sub
 
@@ -1047,21 +1014,15 @@ Private Sub DraftAllLevelsManagementSummary(Optional ByVal createOutlookDraft As
         End If
         BuildManagementSummaryWorksheet streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
                                         config, gSelectedExamLabel, gSelectedYear, "Stream"
-        If createOutlookDraft Then
-            htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
-                                               config, gSelectedExamLabel, gSelectedYear, "Stream")
-        End If
+        htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
+                                           config, gSelectedExamLabel, gSelectedYear, "Stream")
     Else
         BuildManagementSummaryWorksheet summaries, summaryCount, subjectResults, subjectResultCount, _
                                         config, gSelectedExamLabel, gSelectedYear, "Level"
-        If createOutlookDraft Then
-            htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
-                                               config, gSelectedExamLabel, gSelectedYear, "Level")
-        End If
+        htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
+                                           config, gSelectedExamLabel, gSelectedYear, "Level")
     End If
-    gManagementSummaryBuilt = True
-    If createOutlookDraft Then _
-        CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
+    CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
 End Sub
 
 Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
