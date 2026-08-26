@@ -363,6 +363,7 @@ Public Sub BuildSec_TopQualityByLevel()
 
         FormatTopQualitySheet wsOut, outRow - 1
         AddTopQualityHomeButton wsOut
+        FreezeReportHeaderRows wsOut, 2
     Next groupIndex
 
     BuildTopQualityNavigation
@@ -553,6 +554,7 @@ Public Sub BuildSec_AtRiskSummary()
         End If
 
         FinalizeAtRiskSheet wsOut, outRow - 1
+        FreezeReportHeaderRows wsOut, 4
     Next groupIndex
 
     BuildSec_AtRiskNavigation
@@ -573,6 +575,23 @@ ErrHandler:
     Else
         MsgBox "Error in BuildSec_AtRiskSummary: " & Err.Description, vbCritical
     End If
+End Sub
+
+Private Sub FreezeReportHeaderRows(ByVal ws As Worksheet, ByVal headerRowCount As Long)
+    If headerRowCount < 1 Then Exit Sub
+
+    On Error GoTo CleanExit
+    ws.Activate
+    With ActiveWindow
+        .FreezePanes = False
+        .SplitColumn = 0
+        .SplitRow = 0
+    End With
+    ws.Cells(headerRowCount + 1, 1).Select
+    ActiveWindow.FreezePanes = True
+
+CleanExit:
+    On Error GoTo 0
 End Sub
 
 '---------------------------------------------------------
