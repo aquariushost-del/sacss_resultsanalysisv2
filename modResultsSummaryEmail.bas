@@ -136,6 +136,7 @@ Private gDraftAllLevels As Boolean
 Private gAllLevelSheets As Collection
 Private gSelectedExamLabel As String
 Private gSelectedYear As String
+Private gManagementSummaryBuilt As Boolean
 
 '------------------------------------------------------------
 ' PUBLIC ENTRY POINT
@@ -182,6 +183,37 @@ Public Sub DraftResultsSummaryEmail()
 
 ErrHandler:
     MsgBox "Could not create the results-summary draft: " & Err.Description, vbCritical
+End Sub
+
+' Build the formatted management Summary worksheet without opening Outlook.
+' Returns True only when an ALL LEVELS summary was successfully created.
+Public Function BuildResultsSummaryWorksheetForBatch() As Boolean
+    Dim wsSrc As Worksheet
+
+    Set wsSrc = SelectEmailSourceByAssessment()
+    If wsSrc Is Nothing Then Exit Function
+
+    If Not gDraftAllLevels Then
+        MsgBox "The Summary worksheet uses the all-level management view." & vbCrLf & _
+               "Run the step again and choose 0 - ALL LEVELS.", _
+               vbExclamation, "Build Summary Worksheet"
+        Exit Function
+    End If
+
+    gManagementSummaryBuilt = False
+    DraftAllLevelsManagementSummary False
+    BuildResultsSummaryWorksheetForBatch = gManagementSummaryBuilt
+End Function
+
+Public Sub BuildResultsSummaryWorksheet()
+    On Error GoTo ErrHandler
+    If BuildResultsSummaryWorksheetForBatch() Then
+        MsgBox "The Summary worksheet has been refreshed.", vbInformation, "Summary Complete"
+    End If
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Could not build the Summary worksheet: " & Err.Description, vbCritical, "Summary"
 End Sub
 
 '------------------------------------------------------------
@@ -979,7 +1011,7 @@ End Function
 '------------------------------------------------------------
 ' ALL-LEVELS MANAGEMENT SUMMARY
 '------------------------------------------------------------
-Private Sub DraftAllLevelsManagementSummary()
+Private Sub DraftAllLevelsManagementSummary(Optional ByVal createOutlookDraft As Boolean = True)
     Dim summaries() As tEmailLevelSummary
     Dim summaryCount As Long
     Dim streamSummaries() As tEmailLevelSummary
@@ -990,6 +1022,7 @@ Private Sub DraftAllLevelsManagementSummary()
     Dim htmlBody As String
     Dim summaryMode As String
 
+    gManagementSummaryBuilt = False
     If gAllLevelSheets Is Nothing Then Exit Sub
     If gAllLevelSheets.count = 0 Then Exit Sub
 
@@ -1012,17 +1045,23 @@ Private Sub DraftAllLevelsManagementSummary()
                    vbExclamation, "PRELIM Stream Breakdown"
             Exit Sub
         End If
-        htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
-                                           config, gSelectedExamLabel, gSelectedYear, "Stream")
         BuildManagementSummaryWorksheet streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
                                         config, gSelectedExamLabel, gSelectedYear, "Stream"
+        If createOutlookDraft Then
+            htmlBody = BuildAllLevelsEmailHtml(streamSummaries, streamSummaryCount, subjectResults, subjectResultCount, _
+                                               config, gSelectedExamLabel, gSelectedYear, "Stream")
+        End If
     Else
-        htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
-                                           config, gSelectedExamLabel, gSelectedYear, "Level")
         BuildManagementSummaryWorksheet summaries, summaryCount, subjectResults, subjectResultCount, _
                                         config, gSelectedExamLabel, gSelectedYear, "Level"
+        If createOutlookDraft Then
+            htmlBody = BuildAllLevelsEmailHtml(summaries, summaryCount, subjectResults, subjectResultCount, _
+                                               config, gSelectedExamLabel, gSelectedYear, "Level")
+        End If
     End If
-    CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
+    gManagementSummaryBuilt = True
+    If createOutlookDraft Then _
+        CreateOutlookDraft htmlBody, gSelectedExamLabel, gSelectedYear, "All Levels", True
 End Sub
 
 Private Sub BuildLevelSummaries(ByVal sourceSheets As Collection, _
@@ -1528,10 +1567,9 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     Dim i As Long
     Dim atLeastOne As Long, atLeastTwo As Long, atLeastThree As Long
     Dim atLeastFour As Long, atLeastFive As Long
-    Dim schoolName As String, geSymbol As String
+    Dim geSymbol As String
 
     Set ws = GetOrCreateManagementSummarySheet()
-    schoolName = GetEmailSetting("SchoolName", RemoveWorkbookExtension(ThisWorkbook.Name))
     geSymbol = ChrW(&H2265)
 
     With ws
@@ -1542,33 +1580,14 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
         .Columns("C:F").ColumnWidth = 20
 
         .Range("A1:F1").Merge
-        .Range("A1").value = "For Internal Use only."
-        .Range("A1").Interior.Color = RGB(183, 28, 28)
-        .Range("A1").Font.Color = RGB(255, 255, 255)
+        .Range("A1").value = assessmentName & IIf(yearText <> "", " " & yearText, "") & " - Results Summary"
+        .Range("A1").Font.Size = 20
         .Range("A1").Font.Bold = True
-        .Range("A1").HorizontalAlignment = xlCenter
-        .Rows(1).RowHeight = 24
-
-        .Range("A3:F3").Merge
-        .Range("A3").value = assessmentName & IIf(yearText <> "", " " & yearText, "") & " - Results Summary"
-        .Range("A3").Font.Size = 20
-        .Range("A3").Font.Bold = True
-        .Range("A3").Font.Color = RGB(31, 78, 121)
-
-        .Range("A4:F4").Merge
-        .Range("A4").value = schoolName
-        .Range("A4").Font.Bold = True
-        .Range("A4").Font.Color = RGB(56, 90, 120)
-
-        .Range("A5:F5").Merge
-        .Range("A5").value = "Please find attached the detailed " & assessmentName & _
-                             " Results Analysis. A summary of the key results is provided below."
-        .Range("A5").Font.Color = RGB(96, 120, 142)
-        .Range("A5").WrapText = True
-        .Rows(5).RowHeight = 30
+        .Range("A1").Font.Color = RGB(31, 78, 121)
+        .Rows(1).RowHeight = 30
     End With
 
-    rowPtr = 7
+    rowPtr = 3
     WriteSummarySectionTitle ws, rowPtr, "1. Student Outcomes by " & breakdownLabel
     rowPtr = rowPtr + 1
     headerRow = rowPtr
@@ -1632,7 +1651,7 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     WriteSummaryNote ws, rowPtr, "Criteria: Concern = pass rate below " & FormatThreshold(config.ConcernBelowPct) & _
                      "; Monitor = pass rate from " & FormatThreshold(config.ConcernBelowPct) & " to below " & _
                      FormatThreshold(config.MonitorBelowPct) & ". Subjects with fewer than " & config.MinCandidature & _
-                     " students are excluded due to the small candidature. Full results remain available in the attached Excel workbook."
+                     " students are excluded due to the small candidature."
     rowPtr = rowPtr + 2
 
     WriteSummarySectionTitle ws, rowPtr, "4. Strong Subject-Level Outcomes"
@@ -1642,20 +1661,7 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
                      FormatThreshold(config.StrongPassAtLeastPct) & " and/or the distinction rate is at least " & _
                      FormatThreshold(config.StrongDistAtLeastPct) & ". Groups with fewer than " & _
                      config.MinCandidature & " students are excluded from this summary."
-    rowPtr = rowPtr + 2
-
-    With ws.Range(ws.Cells(rowPtr, 1), ws.Cells(rowPtr, 6))
-        .Merge
-        .value = "Detailed subject-level results, students at risk and top performers are available in the attached Excel workbook."
-        .Font.Color = RGB(56, 90, 120)
-        .WrapText = True
-    End With
     rowPtr = rowPtr + 1
-    With ws.Range(ws.Cells(rowPtr, 1), ws.Cells(rowPtr, 6))
-        .Merge
-        .value = "Thank you."
-        .Font.Color = RGB(56, 90, 120)
-    End With
 
     With ws
         .Rows("1:" & rowPtr).VerticalAlignment = xlCenter
@@ -1668,7 +1674,7 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     End With
     ActiveWindow.DisplayGridlines = False
     ActiveWindow.FreezePanes = False
-    ws.Range("A7").Select
+    ws.Range("A5").Select
     ActiveWindow.FreezePanes = True
 End Sub
 
