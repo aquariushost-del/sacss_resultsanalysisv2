@@ -26,6 +26,17 @@ Private Type TopStudentRec
     TopSecondaryCount As Long
     DownwardRemarks As String
     RawTopGrades As String
+    SubjectMix As String
+End Type
+
+Private Type SubjectTopRec
+    SubjectName As String
+    SchemeKey As String
+    ClassName As String
+    RegNo As String
+    StudentName As String
+    ScorePct As Double
+    GradeText As String
 End Type
 
 Private Type SecReportGroup
@@ -312,6 +323,8 @@ Public Sub BuildSec_TopQualityByLevel()
     Dim groupCount As Long, groupIndex As Long
     Dim recs() As TopStudentRec
     Dim recCount As Long
+    Dim subjectTopRecs() As SubjectTopRec
+    Dim subjectTopCount As Long
     Dim outRow As Long
     Dim groupThresholdPct As Double
     Dim levelMode As String
@@ -324,21 +337,29 @@ Public Sub BuildSec_TopQualityByLevel()
     CollectSecReportGroups groups, groupCount, "TopQual_"
     For groupIndex = 1 To groupCount
         Set wsOut = GetOrCreateWorksheet(groups(groupIndex).SheetName)
+        wsOut.Cells.UnMerge
+        wsOut.Cells.Clear
         PrepareTopQualitySheet wsOut, groups(groupIndex).LevelCode, _
                                groups(groupIndex).AssessmentLabel, groups(groupIndex).YearText
         levelMode = GetLevelMode(groups(groupIndex).LevelCode)
 
         recCount = 0
+        subjectTopCount = 0
         For Each ws In wb.Worksheets
             If SecSourceMatchesGroup(ws, groups(groupIndex)) Then
-                AppendTopQualityFromSourceSheet ws, groups(groupIndex).LevelCode, recs, recCount, groupThresholdPct
+                AppendTopQualityFromSourceSheet ws, groups(groupIndex).LevelCode, recs, recCount, _
+                                                subjectTopRecs, subjectTopCount, groupThresholdPct
             End If
         Next ws
 
         outRow = 5
-        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G3", 20, recs, recCount, levelMode)
-        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G2", 10, recs, recCount, levelMode)
-        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G1", 10, recs, recCount, levelMode)
+        outRow = WriteSubjectTopPerformersSection(wsOut, outRow, subjectTopRecs, subjectTopCount)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G3", 5, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G2", 5, recs, recCount, levelMode)
+        outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "G1", 5, recs, recCount, levelMode)
+        If UCase$(levelMode) <> LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+            outRow = WriteTopGroupSection(wsOut, outRow, groups(groupIndex).LevelCode, "MIXED", 5, recs, recCount, levelMode)
+        End If
 
         FormatTopQualitySheet wsOut, outRow - 1
         AddTopQualityHomeButton wsOut
@@ -723,6 +744,8 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                                             ByVal targetLevel As String, _
                                             ByRef recs() As TopStudentRec, _
                                             ByRef recCount As Long, _
+                                            ByRef subjectTopRecs() As SubjectTopRec, _
+                                            ByRef subjectTopCount As Long, _
                                             ByVal groupThresholdPct As Double)
     Dim classCol As Long, nameCol As Long, regCol As Long
     Dim lastRow As Long, lastCol As Long
@@ -733,17 +756,16 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
     Dim header As String, schemeKey As String, subjectName As String
     Dim className As String, studentName As String, regNo As String
     Dim rawGrade As String, rawScore As String, gradeStr As String
-    Dim isVrMc As Boolean
+    Dim isVrMc As Boolean, isAb As Boolean, hasNumericScore As Boolean
     Dim topCount As Long
     Dim topPrimaryCount As Long, topSecondaryCount As Long
     Dim g1GroupCount As Long, g2GroupCount As Long, g3GroupCount As Long, groupTotalCount As Long
     Dim fsbbGroup As String
     Dim remarksText As String
     Dim rawTopText As String
-    Dim mappedLabel As String
-    Dim usedDownward As Boolean
     Dim mappedBand As Long
     Dim levelMode As String
+    Dim scoreValue As Double
 
     On Error GoTo FailSafe
 
@@ -839,14 +861,25 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
             If subjectScoreCols(i) > 0 Then rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
 
             isVrMc = (rawGrade = "VR" Or rawScore = "VR" Or rawGrade = "MC" Or rawScore = "MC")
+            isAb = (rawGrade = "AB" Or rawScore = "AB")
+            hasNumericScore = False
+            If subjectScoreCols(i) > 0 And Not isVrMc And Not isAb Then
+                hasNumericScore = TryGetPercentageScore(wsSrc.Cells(r, subjectScoreCols(i)), scoreValue)
+            End If
 
-            If gradeStr <> "" Or isVrMc Then
+            If gradeStr <> "" Or isVrMc Or isAb Or hasNumericScore Then
                 groupTotalCount = groupTotalCount + 1
                 Select Case UCase$(Trim$(subjectSchemeKeys(i)))
                     Case "G1": g1GroupCount = g1GroupCount + 1
                     Case "G2": g2GroupCount = g2GroupCount + 1
                     Case "G3": g3GroupCount = g3GroupCount + 1
                 End Select
+            End If
+
+            If hasNumericScore Then
+                AppendSubjectTopRecord subjectTopRecs, subjectTopCount, subjectNames(i), _
+                                       subjectSchemeKeys(i), className, regNo, studentName, _
+                                       scoreValue, gradeStr
             End If
 
         Next i
@@ -857,7 +890,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 fsbbGroup = ResolveFsbbGroup(g1GroupCount, g2GroupCount, g3GroupCount, groupTotalCount, groupThresholdPct)
             End If
 
-            If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Then
+            If fsbbGroup = "G1" Or fsbbGroup = "G2" Or fsbbGroup = "G3" Or fsbbGroup = "MIXED" Then
                 topPrimaryCount = 0
                 topSecondaryCount = 0
                 remarksText = ""
@@ -870,10 +903,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                     isVrMc = (rawGrade = "VR" Or rawScore = "VR" Or rawGrade = "MC" Or rawScore = "MC")
 
                     If Not isVrMc And gradeStr <> "" Then
-                        mappedLabel = ""
-                        usedDownward = False
-                        mappedBand = GetTopBandByDownwardMapEx(gradeStr, subjectSchemeKeys(i), fsbbGroup, mappedLabel, usedDownward, _
-                                                              (UCase$(levelMode) <> LEVEL_MODE_LEGACY_NO_DOWNWARD))
+                        mappedBand = GetNativeTopBand(gradeStr, subjectSchemeKeys(i))
                         Select Case mappedBand
                             Case 1
                                 topPrimaryCount = topPrimaryCount + 1
@@ -886,10 +916,6 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                             rawTopText = rawTopText & subjectNames(i) & " (" & gradeStr & ")"
                         End If
 
-                        If usedDownward And mappedBand > 0 Then
-                            If remarksText <> "" Then remarksText = remarksText & ", "
-                            remarksText = remarksText & subjectNames(i) & " " & gradeStr & " -> " & mappedLabel
-                        End If
                     End If
                 Next i
                 topCount = topPrimaryCount + topSecondaryCount
@@ -911,6 +937,7 @@ Private Sub AppendTopQualityFromSourceSheet(ByVal wsSrc As Worksheet, _
                 recs(recCount).TopSecondaryCount = topSecondaryCount
                 recs(recCount).DownwardRemarks = remarksText
                 recs(recCount).RawTopGrades = rawTopText
+                recs(recCount).SubjectMix = "G3: " & g3GroupCount & " | G2: " & g2GroupCount & " | G1: " & g1GroupCount
             End If
         End If
 
@@ -921,6 +948,200 @@ NextStudent:
 FailSafe:
     ' Skip broken source sheet
 End Sub
+
+Private Function TryGetPercentageScore(ByVal scoreCell As Range, _
+                                       ByRef scorePct As Double) As Boolean
+    Dim rawValue As Variant
+    Dim pctValue As Double
+    Dim rawText As String
+
+    rawValue = scoreCell.value
+    If IsError(rawValue) Or IsEmpty(rawValue) Then Exit Function
+
+    rawText = Trim$(CStr(rawValue))
+    If Right$(rawText, 1) = "%" Then
+        rawText = Trim$(Left$(rawText, Len(rawText) - 1))
+        If Not IsNumeric(rawText) Then Exit Function
+        pctValue = CDbl(rawText)
+    Else
+        If Not IsNumeric(rawValue) Then Exit Function
+        pctValue = CDbl(rawValue)
+        If InStr(1, scoreCell.NumberFormat, "%", vbBinaryCompare) > 0 Then pctValue = pctValue * 100#
+    End If
+    If pctValue < 0# Or pctValue > 100# Then Exit Function
+
+    scorePct = pctValue
+    TryGetPercentageScore = True
+End Function
+
+Private Sub AppendSubjectTopRecord(ByRef recs() As SubjectTopRec, _
+                                   ByRef recCount As Long, _
+                                   ByVal subjectName As String, _
+                                   ByVal schemeKey As String, _
+                                   ByVal className As String, _
+                                   ByVal regNo As String, _
+                                   ByVal studentName As String, _
+                                   ByVal scorePct As Double, _
+                                   ByVal gradeText As String)
+    recCount = recCount + 1
+    If recCount = 1 Then
+        ReDim recs(1 To 1)
+    Else
+        ReDim Preserve recs(1 To recCount)
+    End If
+
+    With recs(recCount)
+        .SubjectName = subjectName
+        .SchemeKey = UCase$(Trim$(schemeKey))
+        .ClassName = className
+        .RegNo = regNo
+        .StudentName = studentName
+        .ScorePct = scorePct
+        .GradeText = gradeText
+    End With
+End Sub
+
+Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
+                                                  ByVal startRow As Long, _
+                                                  ByRef recs() As SubjectTopRec, _
+                                                  ByVal recCount As Long) As Long
+    Dim subjectMap As Object
+    Dim keys As Variant
+    Dim idx() As Long
+    Dim idxCount As Long
+    Dim i As Long, j As Long
+    Dim r As Long, rankNo As Long
+    Dim key As String, tmpKey As String
+    Dim currentScore As Double
+
+    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
+        .Merge
+        .value = "Top 3 in Each Subject by Percentage (ties included)"
+        .Font.Bold = True
+        .Font.Size = 12
+        .Font.Color = RGB(31, 78, 121)
+        .Interior.Color = RGB(221, 235, 247)
+    End With
+    startRow = startRow + 1
+
+    If recCount = 0 Then
+        wsOut.Cells(startRow, 1).value = "(No valid numeric subject scores found.)"
+        wsOut.Cells(startRow, 1).Font.Italic = True
+        WriteSubjectTopPerformersSection = startRow + 2
+        Exit Function
+    End If
+
+    wsOut.Cells(startRow, 1).value = "Subject"
+    wsOut.Cells(startRow, 2).value = "G-Level"
+    wsOut.Cells(startRow, 3).value = "Rank"
+    wsOut.Cells(startRow, 4).value = "Class"
+    wsOut.Cells(startRow, 5).value = "RegNo"
+    wsOut.Cells(startRow, 6).value = "Name"
+    wsOut.Cells(startRow, 7).value = "Score %"
+    wsOut.Cells(startRow, 8).value = "Grade"
+    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 8))
+        .Font.Bold = True
+        .Interior.Color = RGB(238, 245, 251)
+    End With
+    r = startRow + 1
+
+    Set subjectMap = CreateObject("Scripting.Dictionary")
+    subjectMap.CompareMode = vbTextCompare
+    For i = 1 To recCount
+        key = UCase$(Trim$(recs(i).SubjectName)) & "|" & UCase$(Trim$(recs(i).SchemeKey))
+        If Not subjectMap.Exists(key) Then subjectMap.Add key, key
+    Next i
+    keys = subjectMap.Keys
+
+    For i = LBound(keys) To UBound(keys) - 1
+        For j = i + 1 To UBound(keys)
+            If StrComp(CStr(keys(j)), CStr(keys(i)), vbTextCompare) < 0 Then
+                tmpKey = CStr(keys(i)): keys(i) = keys(j): keys(j) = tmpKey
+            End If
+        Next j
+    Next i
+
+    For i = LBound(keys) To UBound(keys)
+        idxCount = 0
+        Erase idx
+        For j = 1 To recCount
+            key = UCase$(Trim$(recs(j).SubjectName)) & "|" & UCase$(Trim$(recs(j).SchemeKey))
+            If StrComp(key, CStr(keys(i)), vbTextCompare) = 0 Then
+                idxCount = idxCount + 1
+                If idxCount = 1 Then
+                    ReDim idx(1 To 1)
+                Else
+                    ReDim Preserve idx(1 To idxCount)
+                End If
+                idx(idxCount) = j
+            End If
+        Next j
+
+        SortSubjectTopIndexes recs, idx, idxCount
+        rankNo = 0
+        currentScore = -1#
+        For j = 1 To idxCount
+            If j = 1 Or Abs(recs(idx(j)).ScorePct - currentScore) > 0.0000001 Then rankNo = j
+            If rankNo > 3 Then Exit For
+            currentScore = recs(idx(j)).ScorePct
+
+            wsOut.Cells(r, 1).value = recs(idx(j)).SubjectName
+            wsOut.Cells(r, 2).value = recs(idx(j)).SchemeKey
+            wsOut.Cells(r, 3).value = rankNo
+            wsOut.Cells(r, 4).value = recs(idx(j)).ClassName
+            wsOut.Cells(r, 5).value = recs(idx(j)).RegNo
+            wsOut.Cells(r, 6).value = recs(idx(j)).StudentName
+            wsOut.Cells(r, 7).value = recs(idx(j)).ScorePct
+            wsOut.Cells(r, 7).NumberFormat = "0.0"
+            wsOut.Cells(r, 8).value = recs(idx(j)).GradeText
+            r = r + 1
+        Next j
+    Next i
+
+    WriteSubjectTopPerformersSection = r + 2
+End Function
+
+Private Sub SortSubjectTopIndexes(ByRef recs() As SubjectTopRec, _
+                                  ByRef idx() As Long, _
+                                  ByVal idxCount As Long)
+    Dim i As Long, j As Long, tmp As Long
+    For i = 1 To idxCount - 1
+        For j = i + 1 To idxCount
+            If recs(idx(j)).ScorePct > recs(idx(i)).ScorePct Or _
+               (Abs(recs(idx(j)).ScorePct - recs(idx(i)).ScorePct) < 0.0000001 And _
+                StrComp(recs(idx(j)).StudentName, recs(idx(i)).StudentName, vbTextCompare) < 0) Then
+                tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+            End If
+        Next j
+    Next i
+End Sub
+
+Private Function GetNativeTopBand(ByVal gradeStr As String, _
+                                  ByVal schemeKey As String) As Long
+    Dim g As String
+    g = UCase$(Trim$(gradeStr))
+
+    Select Case UCase$(Trim$(schemeKey))
+        Case "G3"
+            If g = "A1" Then
+                GetNativeTopBand = 1
+            ElseIf g = "A2" Then
+                GetNativeTopBand = 2
+            End If
+        Case "G2"
+            If g = "1" Then
+                GetNativeTopBand = 1
+            ElseIf g = "2" Then
+                GetNativeTopBand = 2
+            End If
+        Case "G1"
+            If g = "A" Then
+                GetNativeTopBand = 1
+            ElseIf g = "B" Then
+                GetNativeTopBand = 2
+            End If
+    End Select
+End Function
 
 Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
                                       ByVal startRow As Long, _
@@ -935,17 +1156,28 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
     Dim i As Long, j As Long, tmp As Long
     Dim cutoffTop As Long, cutoffPrimary As Long, cutoffSecondary As Long
     Dim r As Long
-    Dim primaryLbl As String, secondaryLbl As String
     Dim displayGroup As String
+    Dim sectionTitle As String
 
     displayGroup = MapGroupLabelForMode(groupCode, levelMode)
-    wsOut.Cells(startRow, 1).value = displayGroup & " Top Students (Top " & topN & ", ties included)"
-    wsOut.Cells(startRow, 1).Font.Bold = True
-    wsOut.Cells(startRow, 1).Font.Color = RGB(79, 33, 33)
+    If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+        sectionTitle = "Top Performers in " & displayGroup & " Subjects"
+    ElseIf UCase$(groupCode) = "MIXED" Then
+        sectionTitle = "Top Performers with Mixed Subject Levels"
+    Else
+        sectionTitle = "Top Performers in Predominantly " & UCase$(groupCode) & " Subjects"
+    End If
+    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
+        .Merge
+        .value = sectionTitle & " (Top " & topN & ", ties included)"
+        .Font.Bold = True
+        .Font.Color = RGB(79, 33, 33)
+        .Interior.Color = RGB(252, 228, 214)
+    End With
     startRow = startRow + 1
 
     For i = 1 To recCount
-        If UCase$(recs(i).GroupCode) = UCase$(groupCode) Then
+        If UCase$(recs(i).GroupCode) = UCase$(groupCode) And recs(i).TopCount > 0 Then
             idxCount = idxCount + 1
             If idxCount = 1 Then
                 ReDim idx(1 To 1)
@@ -977,21 +1209,23 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         Next j
     Next i
 
-    GetTopBandLabels groupCode, primaryLbl, secondaryLbl
-
     wsOut.Cells(startRow, 1).value = "Level"
     wsOut.Cells(startRow, 2).value = "Class"
     wsOut.Cells(startRow, 3).value = "RegNo"
     wsOut.Cells(startRow, 4).value = "Name"
-    wsOut.Cells(startRow, 5).value = "Group"
+    If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
+        wsOut.Cells(startRow, 5).value = "Group"
+    Else
+        wsOut.Cells(startRow, 5).value = "Predominant Group"
+    End If
     wsOut.Cells(startRow, 6).NumberFormat = "@"
     wsOut.Cells(startRow, 7).NumberFormat = "@"
     wsOut.Cells(startRow, 8).NumberFormat = "@"
-    wsOut.Cells(startRow, 6).value = primaryLbl & "/" & secondaryLbl
-    wsOut.Cells(startRow, 7).value = primaryLbl
-    wsOut.Cells(startRow, 8).value = secondaryLbl
-    wsOut.Cells(startRow, 9).value = "Remarks"
-    wsOut.Cells(startRow, 10).value = "Raw Top Grades"
+    wsOut.Cells(startRow, 6).value = "Top Grades"
+    wsOut.Cells(startRow, 7).value = "1st Band"
+    wsOut.Cells(startRow, 8).value = "2nd Band"
+    wsOut.Cells(startRow, 9).value = "Subject Mix"
+    wsOut.Cells(startRow, 10).value = "Native Top Grades"
     wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10)).Font.Bold = True
     startRow = startRow + 1
 
@@ -1020,7 +1254,7 @@ Private Function WriteTopGroupSection(ByVal wsOut As Worksheet, _
         wsOut.Cells(r, 6).value = recs(idx(i)).TopCount
         wsOut.Cells(r, 7).value = recs(idx(i)).TopPrimaryCount
         wsOut.Cells(r, 8).value = recs(idx(i)).TopSecondaryCount
-        wsOut.Cells(r, 9).value = recs(idx(i)).DownwardRemarks
+        wsOut.Cells(r, 9).value = recs(idx(i)).SubjectMix
         wsOut.Cells(r, 10).value = recs(idx(i)).RawTopGrades
         r = r + 1
     Next i
@@ -1032,29 +1266,27 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
                                    ByVal assessmentLabel As String, ByVal yearText As String)
     Dim explainer As String
     Dim levelMode As String
+    Dim thresholdPct As Double
 
     wsOut.Range("A1").value = levelCode & " " & assessmentLabel & IIf(yearText <> "", " " & yearText, "") & _
-                              " - Top Students by Top Grades"
+                              " - Top Performers"
     wsOut.Range("A1").Font.Bold = True
     wsOut.Range("A1").Font.Size = 14
 
     levelMode = GetLevelMode(levelCode)
+    thresholdPct = GetGroupThresholdPercent()
     If UCase$(levelMode) = LEVEL_MODE_LEGACY_NO_DOWNWARD Then
-        explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
-                    "then by the second top-grade column. EX top 20; NA/NT top 10; ties included." & vbLf & _
-                    "Columns used: EX uses A1/A2 (A1 then A2); NA uses 1/2 (1 then 2); " & _
-                    "NT uses A/B (A then B)." & vbLf & _
-                    "Legacy mode: downward conversion is NOT applied. Top grades are counted within each subject's own track." & vbLf & _
+        explainer = "Part 1 lists the top 3 students in each subject by numeric score percentage; ties are included." & vbLf & _
+                    "Part 2 lists the top 5 performers in each mapped EX/NA/NT group. Ranking uses native top grades: " & _
+                    "G3/EX A1-A2, G2/NA 1-2 and G1/NT A-B; no downward conversion is applied." & vbLf & _
+                    "AB, MC and VR are excluded from percentage ranking." & vbLf & _
                     "Note: Do not use this data for Awards selection."
     Else
-        explainer = "How ranking works: first by total top grades, then by the first top-grade column, " & _
-                    "then by the second top-grade column. G3 top 20; G2/G1 top 10; ties included." & vbLf & _
-                    "Columns used: G3 uses A1/A2 (A1 then A2); G2 uses 1/2 (1 then 2); " & _
-                    "G1 uses A/B (A then B)." & vbLf & _
-                    "Downward conversion for mixed-level subjects (AUTO_FSBB mode only): " & _
-                    "G3->G2: A1/A2/B3=>1, B4/C5/C6=>2. " & _
-                    "G2->G1: 1/2/3=>A, 4=>B. " & _
-                    "G3->G1: A1/A2/B3/B4/C5/C6/D7=>A, E8=>B." & vbLf & _
+        explainer = "Part 1 lists the top 3 students in each subject by numeric score percentage; ties are included." & vbLf & _
+                    "Part 2 lists the top 5 performers for predominantly G3, G2 and G1 subject loads, plus Mixed where needed. " & _
+                    "Predominant means at least " & Format$(thresholdPct, "0.#") & "% of registered subjects at that level." & vbLf & _
+                    "Ranking uses native top grades across the student's subjects: G3 A1-A2, G2 1-2 and G1 A-B; " & _
+                    "no downward conversion is applied. AB, MC and VR count toward subject mix but not performance ranking." & vbLf & _
                     "Note: Do not use this data for Awards selection."
     End If
 
@@ -1065,22 +1297,22 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
         .Font.Italic = True
         .VerticalAlignment = xlTop
     End With
-    wsOut.Rows(2).RowHeight = 60
+    wsOut.Rows(2).RowHeight = 75
 End Sub
 
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     Dim rngTable As Range
 
     wsOut.Columns("A:J").AutoFit
-    wsOut.Columns("A").ColumnWidth = 8
+    wsOut.Columns("A").ColumnWidth = 26
     wsOut.Columns("B").ColumnWidth = 12
-    wsOut.Columns("C").ColumnWidth = 5
+    wsOut.Columns("C").ColumnWidth = 8
     wsOut.Columns("D").ColumnWidth = 24
-    wsOut.Columns("E").ColumnWidth = 8
-    wsOut.Columns("F").ColumnWidth = 10
+    wsOut.Columns("E").ColumnWidth = 16
+    wsOut.Columns("F").ColumnWidth = 24
     wsOut.Columns("G").ColumnWidth = 10
     wsOut.Columns("H").ColumnWidth = 10
-    wsOut.Columns("I").ColumnWidth = 32
+    wsOut.Columns("I").ColumnWidth = 28
     wsOut.Columns("C").HorizontalAlignment = xlCenter
     wsOut.Columns("E:H").HorizontalAlignment = xlCenter
     wsOut.Columns("I").WrapText = True
@@ -1095,23 +1327,6 @@ Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Lon
             .Weight = xlThin
         End With
     End If
-End Sub
-
-Private Sub GetTopBandLabels(ByVal groupCode As String, ByRef primaryLbl As String, ByRef secondaryLbl As String)
-    Select Case UCase$(Trim$(groupCode))
-        Case "G3"
-            primaryLbl = "A1"
-            secondaryLbl = "A2"
-        Case "G2"
-            primaryLbl = "1"
-            secondaryLbl = "2"
-        Case "G1"
-            primaryLbl = "A"
-            secondaryLbl = "B"
-        Case Else
-            primaryLbl = "Top1"
-            secondaryLbl = "Top2"
-    End Select
 End Sub
 
 Private Function GetLevelMode(ByVal levelCode As String) As String
@@ -1181,89 +1396,6 @@ Private Function MapGroupLabelForMode(ByVal fsbbGroup As String, ByVal levelMode
     Else
         MapGroupLabelForMode = g
     End If
-End Function
-
-Private Function GetTopBandByDownwardMapEx(ByVal gradeStr As String, _
-                                           ByVal sourceScheme As String, _
-                                           ByVal targetGroup As String, _
-                                           ByRef mappedLabel As String, _
-                                           ByRef usedDownward As Boolean, _
-                                           Optional ByVal allowDownward As Boolean = True) As Long
-    Dim g As String, src As String, tgt As String
-    g = UCase$(Trim$(gradeStr))
-    src = UCase$(Trim$(sourceScheme))
-    tgt = UCase$(Trim$(targetGroup))
-    mappedLabel = ""
-    usedDownward = False
-
-    Select Case tgt
-        Case "G3"
-            If src = "G3" Then
-                If g = "A1" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "A1"
-                ElseIf g = "A2" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "A2"
-                End If
-            End If
-
-        Case "G2"
-            If src = "G2" Then
-                If g = "1" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "1"
-                ElseIf g = "2" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "2"
-                End If
-            ElseIf src = "G3" And allowDownward Then
-                ' G3 -> G2 mapping: A1/A2/B3->1 ; B4/C5/C6->2 ; D7->3 ; E8->4 ; 9/F9->5
-                If g = "A1" Or g = "A2" Or g = "B3" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "1"
-                    usedDownward = True
-                ElseIf g = "B4" Or g = "C5" Or g = "C6" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "2"
-                    usedDownward = True
-                End If
-            End If
-
-        Case "G1"
-            If src = "G1" Then
-                If g = "A" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "A"
-                ElseIf g = "B" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "B"
-                End If
-            ElseIf src = "G2" And allowDownward Then
-                ' G2 -> G1 mapping: 1/2/3->A ; 4->B ; 5->C ; 6->D
-                If g = "1" Or g = "2" Or g = "3" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "A"
-                    usedDownward = True
-                ElseIf g = "4" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "B"
-                    usedDownward = True
-                End If
-            ElseIf src = "G3" And allowDownward Then
-                ' G3 -> G1 mapping: A1/A2/B3/B4/C5/C6/D7->A ; E8->B ; 9/F9->C
-                If g = "A1" Or g = "A2" Or g = "B3" Or g = "B4" _
-                   Or g = "C5" Or g = "C6" Or g = "D7" Then
-                    GetTopBandByDownwardMapEx = 1
-                    mappedLabel = "A"
-                    usedDownward = True
-                ElseIf g = "E8" Then
-                    GetTopBandByDownwardMapEx = 2
-                    mappedLabel = "B"
-                    usedDownward = True
-                End If
-            End If
-    End Select
 End Function
 
 Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
@@ -1409,9 +1541,11 @@ Private Function AppendSecAtRiskFromSourceSheet(ByVal wsSrc As Worksheet, _
                 rawScore = UCase$(Trim$(CStr(wsSrc.Cells(r, subjectScoreCols(i)).value)))
             End If
 
-            ' Group base includes attempted subjects and those marked VR/MC.
+            ' Predominant subject mix includes registered subjects with a
+            ' result or an AB/VR/MC status; absence does not change G-level.
             If gradeStr <> "" Or rawGrade = "VR" Or rawScore = "VR" _
-               Or rawGrade = "MC" Or rawScore = "MC" Then
+               Or rawGrade = "MC" Or rawScore = "MC" _
+               Or rawGrade = "AB" Or rawScore = "AB" Then
                 groupTotalCount = groupTotalCount + 1
                 Select Case UCase$(Trim$(subjectSchemeKeys(i)))
                     Case "G1": g1GroupCount = g1GroupCount + 1
@@ -3106,23 +3240,36 @@ Private Function ResolveFsbbGroup(ByVal g1Taken As Long, _
                                   ByVal g3Taken As Long, _
                                   ByVal attemptedCount As Long, _
                                   ByVal thresholdPct As Double) As String
+    Dim maxTaken As Long
+    Dim maxPct As Double
+    Dim maxCount As Long
+
     If attemptedCount <= 0 Then
         ResolveFsbbGroup = ""
         Exit Function
     End If
 
-    ' Rule requested:
-    '   any G1 subject => G1
-    '   else any G2 subject => G2
-    '   else all G3 => G3
-    If g1Taken > 0 Then
-        ResolveFsbbGroup = "G1"
-    ElseIf g2Taken > 0 Then
-        ResolveFsbbGroup = "G2"
-    ElseIf g3Taken > 0 Then
+    maxTaken = g3Taken
+    If g2Taken > maxTaken Then maxTaken = g2Taken
+    If g1Taken > maxTaken Then maxTaken = g1Taken
+    maxPct = maxTaken * 100# / attemptedCount
+
+    If maxPct < thresholdPct Then
+        ResolveFsbbGroup = "MIXED"
+        Exit Function
+    End If
+
+    If g3Taken = maxTaken Then maxCount = maxCount + 1
+    If g2Taken = maxTaken Then maxCount = maxCount + 1
+    If g1Taken = maxTaken Then maxCount = maxCount + 1
+    If maxCount > 1 Then
+        ResolveFsbbGroup = "MIXED"
+    ElseIf g3Taken = maxTaken Then
         ResolveFsbbGroup = "G3"
+    ElseIf g2Taken = maxTaken Then
+        ResolveFsbbGroup = "G2"
     Else
-        ResolveFsbbGroup = ""
+        ResolveFsbbGroup = "G1"
     End If
 End Function
 
