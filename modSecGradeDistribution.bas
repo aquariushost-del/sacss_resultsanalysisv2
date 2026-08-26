@@ -52,6 +52,7 @@ End Type
 Public Sub BuildAllSecReportsAndMenus()
     Dim previousScreenUpdating As Boolean
     Dim errorText As String
+    Dim summaryCreated As Boolean
 
     On Error GoTo ErrHandler
 
@@ -59,23 +60,31 @@ Public Sub BuildAllSecReportsAndMenus()
     Application.ScreenUpdating = False
     gSecBatchMode = True
 
-    Application.StatusBar = "1 of 4: Analysing SEC subjects..."
+    Application.StatusBar = "1 of 5: Analysing SEC subjects..."
     BuildAllSec_SubjectAnalysis
 
-    Application.StatusBar = "2 of 4: Building SEC AtRisk summaries..."
+    Application.StatusBar = "2 of 5: Building SEC AtRisk summaries..."
     BuildSec_AtRiskSummary
 
-    Application.StatusBar = "3 of 4: Building SEC Top Students summaries..."
+    Application.StatusBar = "3 of 5: Building SEC Top Students summaries..."
     BuildSec_TopQualityByLevel
 
-    Application.StatusBar = "4 of 4: Refreshing the SEC menu..."
+    Application.StatusBar = "4 of 5: Refreshing the SEC menu..."
     BuildSubjectAnalysisNavigation
+
+    Application.StatusBar = "5 of 5: Building the management Summary..."
+    summaryCreated = BuildResultsSummaryWorksheetForBatch()
 
     gSecBatchMode = False
     Application.StatusBar = False
     Application.ScreenUpdating = previousScreenUpdating
-    MsgBox "SEC subject analysis, AtRisk summaries, Top Students summaries and menus have been refreshed.", _
-           vbInformation, "SEC Reports Complete"
+    If summaryCreated Then
+        MsgBox "SEC subject analysis, AtRisk summaries, Top Students summaries, menus and the Summary worksheet have been refreshed.", _
+               vbInformation, "SEC Reports Complete"
+    Else
+        MsgBox "SEC subject analysis, AtRisk summaries, Top Students summaries and menus have been refreshed." & vbCrLf & _
+               "The Summary worksheet was not rebuilt.", vbInformation, "SEC Reports Complete"
+    End If
     Exit Sub
 
 ErrHandler:
