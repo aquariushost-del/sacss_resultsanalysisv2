@@ -133,6 +133,8 @@ Private Const MGMT_STRONG_DIST_CELL As String = "S6"
 Private Const MGMT_PRELIM_MODE_CELL As String = "S7"
 Private Const SUMMARY_DASHBOARD_BUTTON_NAME As String = "Nav_Summary"
 Private Const SUMMARY_DASHBOARD_BUTTON_RANGE As String = "M1:S2"
+Private Const SUMMARY_HOME_BUTTON_NAME As String = "HomeBtn"
+Private Const SUMMARY_HOME_BUTTON_RANGE As String = "G1:H2"
 
 Private gDraftAllLevels As Boolean
 Private gAllLevelSheets As Collection
@@ -1630,6 +1632,7 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
                      config.MinCandidature & " students are excluded from this summary."
     rowPtr = rowPtr + 1
 
+    AddManagementSummaryHomeButton ws
     AddManagementSummaryDashboardButton
 
     With ws
@@ -1645,6 +1648,54 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     ActiveWindow.FreezePanes = False
     ws.Range("A5").Select
     ActiveWindow.FreezePanes = True
+End Sub
+
+Private Sub AddManagementSummaryHomeButton(ByVal ws As Worksheet)
+    Dim wsDashboard As Worksheet
+    Dim targetRange As Range
+    Dim shp As Shape
+
+    On Error Resume Next
+    Set wsDashboard = ThisWorkbook.Worksheets("Dashboard")
+    On Error GoTo 0
+    If wsDashboard Is Nothing Then Exit Sub
+
+    Set targetRange = ws.Range(SUMMARY_HOME_BUTTON_RANGE)
+
+    On Error Resume Next
+    ws.Shapes(SUMMARY_HOME_BUTTON_NAME).Delete
+    On Error GoTo 0
+
+    Set shp = ws.Shapes.AddShape( _
+        Type:=5, _
+        Left:=targetRange.Left, _
+        Top:=targetRange.Top + 1, _
+        Width:=targetRange.Width, _
+        Height:=targetRange.Height - 2)
+
+    With shp
+        .Name = SUMMARY_HOME_BUTTON_NAME
+        .Placement = xlMoveAndSize
+        .Fill.ForeColor.RGB = RGB(217, 234, 211)
+        .Fill.Transparency = 0#
+        .line.ForeColor.RGB = RGB(106, 168, 79)
+        .line.Weight = 1.5
+        With .TextFrame2
+            .TextRange.text = "Home"
+            .TextRange.Font.Name = "Calibri"
+            .TextRange.Font.Size = 11
+            .TextRange.Font.Bold = True
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(39, 78, 19)
+            .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+            .VerticalAnchor = msoAnchorMiddle
+            .MarginLeft = 6
+            .MarginRight = 6
+            .MarginTop = 3
+            .MarginBottom = 3
+        End With
+    End With
+
+    ws.Hyperlinks.Add Anchor:=shp, Address:="", SubAddress:="'Dashboard'!A1"
 End Sub
 
 Private Sub AddManagementSummaryDashboardButton()
