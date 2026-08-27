@@ -1040,21 +1040,28 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
 
     minSubjectN = GetMinSubjectN()
 
-    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 10))
+    With wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 6))
         .Merge
         .value = "Top 3 in Each Subject by Percentage (ties included)"
         .Font.Bold = True
         .Font.Size = 12
-        .Font.Color = RGB(31, 78, 121)
-        .Interior.Color = RGB(221, 235, 247)
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(31, 78, 121)
+        .VerticalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Borders.Color = RGB(31, 78, 121)
     End With
-    With wsOut.Range(wsOut.Cells(startRow + 1, 1), wsOut.Cells(startRow + 1, 10))
+    wsOut.Rows(startRow).RowHeight = 24
+    With wsOut.Range(wsOut.Cells(startRow + 1, 1), wsOut.Cells(startRow + 1, 6))
         .Merge
         .value = "Subjects with fewer than " & minSubjectN & _
                  " valid numeric scores are excluded (Settings!L6)."
         .Font.Italic = True
+        .Font.Size = 10
         .Font.Color = RGB(89, 89, 89)
+        .VerticalAlignment = xlCenter
     End With
+    wsOut.Rows(startRow + 1).RowHeight = 20
     startRow = startRow + 3
 
     If recCount = 0 Then
@@ -1121,15 +1128,18 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
         subjectName = recs(idx(1)).SubjectName
         schemeKey = recs(idx(1)).SchemeKey
 
-        With wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 10))
+        With wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 6))
             .Merge
             .value = subjectName & " [" & schemeKey & "] - Top 3 by Percentage"
             .Font.Bold = True
             .Font.Size = 11
+            .HorizontalAlignment = xlLeft
+            .VerticalAlignment = xlCenter
+            .IndentLevel = 1
             .Borders.LineStyle = xlContinuous
             .Borders.Weight = xlThin
         End With
-        StyleSubjectTopBlockTitle wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 10)), schemeKey
+        StyleSubjectTopBlockTitle wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 6)), schemeKey
         wsOut.Rows(r).RowHeight = 22
         r = r + 1
 
@@ -1144,7 +1154,9 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
             .Font.Bold = True
             .Interior.Color = RGB(242, 246, 250)
             .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
         End With
+        wsOut.Rows(r).RowHeight = 20
         r = r + 1
 
         rankNo = 0
@@ -1162,6 +1174,10 @@ Private Function WriteSubjectTopPerformersSection(ByVal wsOut As Worksheet, _
             wsOut.Cells(r, 5).NumberFormat = "0.0"
             wsOut.Cells(r, 6).value = recs(idx(j)).GradeText
             StyleSubjectTopRankRow wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 6)), rankNo
+            wsOut.Range(wsOut.Cells(r, 1), wsOut.Cells(r, 3)).HorizontalAlignment = xlCenter
+            wsOut.Range(wsOut.Cells(r, 5), wsOut.Cells(r, 6)).HorizontalAlignment = xlCenter
+            wsOut.Cells(r, 4).HorizontalAlignment = xlLeft
+            wsOut.Rows(r).RowHeight = 20
             r = r + 1
         Next j
         lastDataRow = r - 1
@@ -1394,10 +1410,16 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
     Dim levelMode As String
     Dim thresholdPct As Double
 
-    wsOut.Range("A1").value = levelCode & " " & assessmentLabel & IIf(yearText <> "", " " & yearText, "") & _
-                              " - Top Performers"
-    wsOut.Range("A1").Font.Bold = True
-    wsOut.Range("A1").Font.Size = 14
+    With wsOut.Range("A1:D1")
+        .Merge
+        .value = levelCode & " " & assessmentLabel & IIf(yearText <> "", " " & yearText, "") & _
+                 " - Top Performers"
+        .Font.Bold = True
+        .Font.Size = 14
+        .Font.Color = RGB(31, 78, 121)
+        .VerticalAlignment = xlCenter
+    End With
+    wsOut.Rows(1).RowHeight = 26
 
     levelMode = GetLevelMode(levelCode)
     thresholdPct = GetGroupThresholdPercent()
@@ -1405,15 +1427,13 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
         explainer = "Part 1 lists the top 3 students in each subject by numeric score percentage; ties are included." & vbLf & _
                     "Part 2 lists the top 5 performers in each mapped EX/NA/NT group. Ranking uses native top grades: " & _
                     "G3/EX A1-A2, G2/NA 1-2 and G1/NT A-B; no downward conversion is applied." & vbLf & _
-                    "AB, MC and VR are excluded from percentage ranking." & vbLf & _
-                    "Note: Do not use this data for Awards selection."
+                    "AB, MC and VR are excluded from percentage ranking."
     Else
         explainer = "Part 1 lists the top 3 students in each subject by numeric score percentage; ties are included." & vbLf & _
                     "Part 2 lists the top 5 performers for predominantly G3, G2 and G1 subject loads, plus Mixed where needed. " & _
                     "Predominant means at least " & Format$(thresholdPct, "0.#") & "% of registered subjects at that level." & vbLf & _
                     "Ranking uses native top grades across the student's subjects: G3 A1-A2, G2 1-2 and G1 A-B; " & _
-                    "no downward conversion is applied. AB, MC and VR count toward subject mix but not performance ranking." & vbLf & _
-                    "Note: Do not use this data for Awards selection."
+                    "no downward conversion is applied. AB, MC and VR count toward subject mix but not performance ranking."
     End If
 
     With wsOut.Range("A2:J2")
@@ -1423,19 +1443,19 @@ Private Sub PrepareTopQualitySheet(ByVal wsOut As Worksheet, ByVal levelCode As 
         .Font.Italic = True
         .VerticalAlignment = xlTop
     End With
-    wsOut.Rows(2).RowHeight = 75
+    wsOut.Rows(2).RowHeight = 58
 End Sub
 
 Private Sub FormatTopQualitySheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("A:J").AutoFit
     wsOut.Columns("A").ColumnWidth = 8
-    wsOut.Columns("B").ColumnWidth = 12
+    wsOut.Columns("B").ColumnWidth = 18
     wsOut.Columns("C").ColumnWidth = 8
-    wsOut.Columns("D").ColumnWidth = 24
-    wsOut.Columns("E").ColumnWidth = 16
-    wsOut.Columns("F").ColumnWidth = 24
-    wsOut.Columns("G").ColumnWidth = 10
-    wsOut.Columns("H").ColumnWidth = 10
+    wsOut.Columns("D").ColumnWidth = 28
+    wsOut.Columns("E").ColumnWidth = 17
+    wsOut.Columns("F").ColumnWidth = 14
+    wsOut.Columns("G").ColumnWidth = 12
+    wsOut.Columns("H").ColumnWidth = 12
     wsOut.Columns("I").ColumnWidth = 28
     wsOut.Columns("C").HorizontalAlignment = xlCenter
     wsOut.Columns("E:H").HorizontalAlignment = xlCenter
@@ -2074,6 +2094,7 @@ Private Sub FinalizeAtRiskSheet(ByVal wsOut As Worksheet, ByVal lastRow As Long)
     wsOut.Columns("P").ColumnWidth = 10
     wsOut.Columns("P").HorizontalAlignment = xlCenter
     wsOut.Columns("J").EntireColumn.Hidden = True
+    wsOut.Columns("O:P").EntireColumn.Hidden = True
     wsOut.Range("E4:G4").WrapText = True
     wsOut.Range("A4:P4").VerticalAlignment = xlCenter
 
