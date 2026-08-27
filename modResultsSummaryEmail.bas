@@ -711,7 +711,7 @@ Private Function DetectEmailScheme(ByVal ws As Worksheet, ByVal gradeCol As Long
         g = UCase$(Trim$(CStr(ws.Cells(r, gradeCol).value)))
         If g <> "" And g <> "AB" And g <> "VR" And g <> "-" Then
             Select Case g
-                Case "A1", "A2", "B3", "B4", "C5", "C6", "D7", "E8", "F9"
+                Case "A1", "A2", "B3", "B4", "C5", "C6", "D7", "E8", "F9", "9"
                     DetectEmailScheme = "G3"
                 Case "1", "2", "3", "4", "5", "6"
                     DetectEmailScheme = "G2"
@@ -726,6 +726,11 @@ End Function
 Private Sub EvaluateEmailGrade(ByVal scheme As String, ByVal gradeText As String, _
                                ByRef isValid As Boolean, ByRef isPass As Boolean, _
                                ByRef isDist As Boolean, ByRef pointValue As Double)
+    ' Some source exports store the lowest G3 grade as the numeric text "9".
+    ' Treat it as F9 so it remains in the candidature and counts as a failure,
+    ' matching the Subject Analysis calculation.
+    If UCase$(scheme) = "G3" And UCase$(Trim$(gradeText)) = "9" Then gradeText = "F9"
+
     isValid = True
     isPass = False
     isDist = False
