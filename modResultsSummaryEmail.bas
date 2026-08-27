@@ -1985,8 +1985,8 @@ Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmail
     Dim atLeastOneFail As Long, atLeastTwoFails As Long, atLeastThreeFails As Long
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd(breakdownLabel) & _
-           HeaderTd("Pass All Subjects") & HeaderTdHtml("Failed &ge;1 Subject") & _
-           HeaderTdHtml("Failed &ge;2 Subjects") & HeaderTdHtml("Failed &ge;3 Subjects") & "</tr>"
+           CenterHeaderTd("Pass All Subjects") & CenterHeaderTdHtml("Failed &ge;1 Subject") & _
+           CenterHeaderTdHtml("Failed &ge;2 Subjects") & CenterHeaderTdHtml("Failed &ge;3 Subjects") & "</tr>"
 
     For i = 1 To summaryCount
         If summaries(i).ValidStudentCount > 0 Then
@@ -2013,9 +2013,9 @@ Private Function BuildManagementDistinctionOutcomesTable(ByRef summaries() As tE
     Dim atLeastFour As Long, atLeastFive As Long
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd(breakdownLabel) & _
-           HeaderTdHtml("&ge;1 Distinction") & HeaderTdHtml("&ge;2 Distinctions") & _
-           HeaderTdHtml("&ge;3 Distinctions") & HeaderTdHtml("&ge;4 Distinctions") & _
-           HeaderTdHtml("&ge;5 Distinctions") & "</tr>"
+           CenterHeaderTdHtml("&ge;1 Distinction") & CenterHeaderTdHtml("&ge;2 Distinctions") & _
+           CenterHeaderTdHtml("&ge;3 Distinctions") & CenterHeaderTdHtml("&ge;4 Distinctions") & _
+           CenterHeaderTdHtml("&ge;5 Distinctions") & "</tr>"
 
     For i = 1 To summaryCount
         If summaries(i).DistinctionStudentCount > 0 Then
@@ -2039,8 +2039,8 @@ End Function
 
 Private Function OutcomeTd(ByVal studentCount As Long, ByVal denominator As Long, _
                            ByVal colorText As String, ByVal bgColor As String) As String
-    OutcomeTd = NumTd(Format$(EmailPct(studentCount, denominator), "0.0") & "% (" & _
-                       CStr(studentCount) & ")", colorText, bgColor)
+    OutcomeTd = CenterNumTd(Format$(EmailPct(studentCount, denominator), "0.0") & "% (" & _
+                             CStr(studentCount) & ")", colorText, bgColor)
 End Function
 
 Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectResult, _
@@ -2074,7 +2074,7 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
     Next i
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & HeaderTd("Subject / G-Level") & _
-           HeaderTd("No. Taking") & HeaderTd("Pass Rate") & HeaderTd("Status") & "</tr>"
+           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & CenterHeaderTd("Status") & "</tr>"
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
@@ -2085,9 +2085,9 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
         End If
         html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
-               NumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
-               NumTd(Format$(passPct, "0.0") & "%", statusColor, statusBg) & _
-               NumTd(statusText, statusColor, statusBg) & "</tr>"
+               CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
+               CenterNumTd(Format$(passPct, "0.0") & "%", statusColor, statusBg) & _
+               CenterNumTd(statusText, statusColor, statusBg) & "</tr>"
     Next i
     BuildManagementConcernTable = html & "</table>"
 End Function
@@ -2138,16 +2138,16 @@ Private Function BuildManagementStrongTable(ByRef results() As tEmailSubjectResu
     Next i
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & HeaderTd("Subject / G-Level") & _
-           HeaderTd("No. Taking") & HeaderTd("Pass Rate") & HeaderTd("Distinction Rate") & "</tr>"
+           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & CenterHeaderTd("Distinction Rate") & "</tr>"
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
         distPct = EmailPct(results(j).DistCount, results(j).N)
         html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
-               NumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
-               NumTd(Format$(passPct, "0.0") & "%", "#548235", "#edf6e8") & _
-               NumTd(Format$(distPct, "0.0") & "%", "#548235", "#edf6e8") & "</tr>"
+               CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
+               CenterNumTd(Format$(passPct, "0.0") & "%", "#548235", "#edf6e8") & _
+               CenterNumTd(Format$(distPct, "0.0") & "%", "#548235", "#edf6e8") & "</tr>"
     Next i
     BuildManagementStrongTable = html & "</table>"
 End Function
@@ -2707,12 +2707,28 @@ Private Function HeaderTdHtml(ByVal trustedHtml As String) As String
     HeaderTdHtml = "<td style='padding:7px 8px;border-bottom:1px solid #d7e4ef;color:#385a78;font-weight:bold;'>" & trustedHtml & "</td>"
 End Function
 
+Private Function CenterHeaderTd(ByVal valueText As String) As String
+    CenterHeaderTd = "<td align='center' style='padding:7px 8px;border-bottom:1px solid #d7e4ef;" & _
+                     "color:#385a78;font-weight:bold;text-align:center;'>" & HtmlEncode(valueText) & "</td>"
+End Function
+
+Private Function CenterHeaderTdHtml(ByVal trustedHtml As String) As String
+    CenterHeaderTdHtml = "<td align='center' style='padding:7px 8px;border-bottom:1px solid #d7e4ef;" & _
+                         "color:#385a78;font-weight:bold;text-align:center;'>" & trustedHtml & "</td>"
+End Function
+
 Private Function TextTd(ByVal valueText As String, ByVal colorText As String) As String
     TextTd = "<td style='padding:6px 8px;border-bottom:1px solid #e5edf4;color:" & colorText & ";'>" & HtmlEncode(valueText) & "</td>"
 End Function
 
 Private Function NumTd(ByVal valueText As String, ByVal colorText As String, ByVal bgColor As String) As String
     NumTd = "<td align='right' style='padding:6px 8px;border-bottom:1px solid #e5edf4;color:" & colorText & ";background:" & bgColor & ";'>" & HtmlEncode(valueText) & "</td>"
+End Function
+
+Private Function CenterNumTd(ByVal valueText As String, ByVal colorText As String, _
+                             ByVal bgColor As String) As String
+    CenterNumTd = "<td align='center' style='padding:6px 8px;border-bottom:1px solid #e5edf4;color:" & _
+                  colorText & ";background:" & bgColor & ";text-align:center;'>" & HtmlEncode(valueText) & "</td>"
 End Function
 
 Private Function HtmlEncode(ByVal valueText As String) As String
