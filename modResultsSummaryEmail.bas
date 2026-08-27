@@ -1536,14 +1536,13 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     Dim i As Long
     Dim atLeastOne As Long, atLeastTwo As Long, atLeastThree As Long
     Dim atLeastFour As Long, atLeastFive As Long
+    Dim visibleLastRow As Long
     Dim geSymbol As String
 
     Set ws = GetOrCreateManagementSummarySheet()
     geSymbol = ChrW(&H2265)
 
     With ws
-        .Cells.Font.Name = "Calibri"
-        .Cells.Font.Size = 11
         .Columns("A").ColumnWidth = 16
         .Columns("B").ColumnWidth = 33
         .Columns("C:F").ColumnWidth = 20
@@ -1637,14 +1636,17 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
 
     AddManagementSummaryHomeButton ws
     AddManagementSummaryDashboardButton
+    visibleLastRow = rowPtr + 3
 
     With ws
         .Rows("1:" & rowPtr).VerticalAlignment = xlCenter
+        .ScrollArea = "A1:F" & visibleLastRow
         .Tab.Color = RGB(31, 78, 121)
         .PageSetup.Orientation = xlLandscape
         .PageSetup.Zoom = False
         .PageSetup.FitToPagesWide = 1
         .PageSetup.FitToPagesTall = False
+        .PageSetup.PrintArea = "$A$1:$F$" & visibleLastRow
         .Activate
     End With
     ActiveWindow.DisplayGridlines = False
@@ -1792,6 +1794,7 @@ Private Function GetOrCreateManagementSummarySheet() As Worksheet
         End If
         ws.Name = "Summary"
     Else
+        ws.ScrollArea = ""
         ws.Cells.UnMerge
         ws.Cells.Clear
         For k = ws.Shapes.count To 1 Step -1
