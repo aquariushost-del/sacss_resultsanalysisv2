@@ -1505,7 +1505,7 @@ Private Function BuildAllLevelsEmailHtml(ByRef summaries() As tEmailLevelSummary
     AppendHtml html, CardEnd()
 
     AppendHtml html, SpacerRow(10)
-    AppendHtml html, CardStart("4. Strong Subject-Level Outcomes", "")
+    AppendHtml html, CardStart("4. Notable Subject-Level Outcomes", "")
     AppendHtml html, BuildManagementStrongTable(subjectResults, subjectResultCount, config)
     AppendHtml html, BuildManagementStrongCriteria(config)
     AppendHtml html, CardEnd()
@@ -1626,7 +1626,7 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
                      " students are excluded due to the small candidature."
     rowPtr = rowPtr + 2
 
-    WriteSummarySectionTitle ws, rowPtr, "4. Strong Subject-Level Outcomes"
+    WriteSummarySectionTitle ws, rowPtr, "4. Notable Subject-Level Outcomes"
     rowPtr = rowPtr + 1
     rowPtr = WriteSummaryStrongTable(ws, rowPtr, subjectResults, subjectResultCount, config)
     WriteSummaryNote ws, rowPtr, "Criteria: Subjects are highlighted if the pass rate is at least " & _
@@ -1923,7 +1923,8 @@ Private Function WriteSummaryStrongTable(ByVal ws As Worksheet, ByVal startRow A
                                          ByVal resultCount As Long, _
                                          ByRef config As tEmailManagementConfig) As Long
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
-    Dim rowPtr As Long, passPct As Double, distPct As Double
+    Dim rowPtr As Long, passPct As Double, distPct As Double, reasonText As String
+    Dim reasonColor As Long, reasonFill As Long
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
@@ -1939,7 +1940,7 @@ Private Function WriteSummaryStrongTable(ByVal ws As Worksheet, ByVal startRow A
 
     If n = 0 Then
         ws.Range(ws.Cells(startRow, 1), ws.Cells(startRow, 6)).Merge
-        ws.Cells(startRow, 1).value = "No subject/G-level groups met the criteria for Strong Subject-Level Outcomes."
+        ws.Cells(startRow, 1).value = "No subject/G-level groups met the criteria for Notable Subject-Level Outcomes."
         ws.Cells(startRow, 1).Font.Color = RGB(96, 120, 142)
         WriteSummaryStrongTable = startRow + 1
         Exit Function
@@ -1947,29 +1948,43 @@ Private Function WriteSummaryStrongTable(ByVal ws As Worksheet, ByVal startRow A
 
     For i = 1 To n - 1
         For j = i + 1 To n
-            If ManagementStrongBefore(results(idx(j)), results(idx(i))) Then
+            If ManagementStrongBefore(results(idx(j)), results(idx(i)), config) Then
                 tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
             End If
         Next j
     Next i
 
-    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate", "Distinction Rate")
+    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate", "Distinction Rate", "Why Notable")
     rowPtr = startRow + 1
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
         distPct = EmailPct(results(j).DistCount, results(j).N)
+        reasonText = ManagementNotableReason(passPct, distPct, config)
+        Select Case reasonText
+            Case "Polarised Outcome"
+                reasonColor = RGB(192, 0, 0): reasonFill = RGB(255, 240, 240)
+            Case "High Pass & Distinction"
+                reasonColor = RGB(47, 107, 47): reasonFill = RGB(226, 240, 217)
+            Case "High Pass"
+                reasonColor = RGB(31, 78, 121): reasonFill = RGB(238, 245, 251)
+            Case Else
+                reasonColor = RGB(127, 96, 0): reasonFill = RGB(255, 243, 214)
+        End Select
         ws.Cells(rowPtr, 1).value = ManagementLevelLabel(results(j).LevelText)
         ws.Cells(rowPtr, 2).value = results(j).DisplayName & " " & results(j).Scheme
         ws.Cells(rowPtr, 3).value = results(j).N
         ws.Cells(rowPtr, 4).value = passPct / 100#
         ws.Cells(rowPtr, 5).value = distPct / 100#
+        ws.Cells(rowPtr, 6).value = reasonText
         ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).NumberFormat = "0.0%"
         ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Font.Color = RGB(84, 130, 53)
         ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Interior.Color = RGB(237, 246, 232)
+        ws.Cells(rowPtr, 6).Font.Color = reasonColor
+        ws.Cells(rowPtr, 6).Interior.Color = reasonFill
         rowPtr = rowPtr + 1
     Next i
-    StyleSummaryDataTable ws, startRow, rowPtr - 1, 5
+    StyleSummaryDataTable ws, startRow, rowPtr - 1, 6
     ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
     WriteSummaryStrongTable = rowPtr
 End Function
@@ -2100,6 +2115,7 @@ Private Function BuildManagementStrongTable(ByRef results() As tEmailSubjectResu
                                             ByRef config As tEmailManagementConfig) As String
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
     Dim html As String, passPct As Double, distPct As Double
+    Dim reasonText As String, reasonColor As String, reasonBg As String
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
@@ -2114,48 +2130,104 @@ Private Function BuildManagementStrongTable(ByRef results() As tEmailSubjectResu
     Next i
 
     If n = 0 Then
-        BuildManagementStrongTable = ManagementEmptyStatement("No subject/G-level groups met the criteria for Strong Subject-Level Outcomes.")
+        BuildManagementStrongTable = ManagementEmptyStatement("No subject/G-level groups met the criteria for Notable Subject-Level Outcomes.")
         Exit Function
     End If
 
     For i = 1 To n - 1
         For j = i + 1 To n
-            If ManagementStrongBefore(results(idx(j)), results(idx(i))) Then
+            If ManagementStrongBefore(results(idx(j)), results(idx(i)), config) Then
                 tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
             End If
         Next j
     Next i
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & HeaderTd("Subject / G-Level") & _
-           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & CenterHeaderTd("Distinction Rate") & "</tr>"
+           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & CenterHeaderTd("Distinction Rate") & _
+           CenterHeaderTd("Why Notable") & "</tr>"
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
         distPct = EmailPct(results(j).DistCount, results(j).N)
+        reasonText = ManagementNotableReason(passPct, distPct, config)
+        Select Case reasonText
+            Case "Polarised Outcome"
+                reasonColor = "#c00000": reasonBg = "#fff0f0"
+            Case "High Pass & Distinction"
+                reasonColor = "#2f6b2f": reasonBg = "#e2f0d9"
+            Case "High Pass"
+                reasonColor = "#1f4e79": reasonBg = "#eef5fb"
+            Case Else
+                reasonColor = "#7f6000": reasonBg = "#fff3d6"
+        End Select
         html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
                CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
                CenterNumTd(Format$(passPct, "0.0") & "%", "#548235", "#edf6e8") & _
-               CenterNumTd(Format$(distPct, "0.0") & "%", "#548235", "#edf6e8") & "</tr>"
+               CenterNumTd(Format$(distPct, "0.0") & "%", "#548235", "#edf6e8") & _
+               CenterNumTd(reasonText, reasonColor, reasonBg) & "</tr>"
     Next i
     BuildManagementStrongTable = html & "</table>"
 End Function
 
+Private Function ManagementNotableReason(ByVal passPct As Double, _
+                                         ByVal distPct As Double, _
+                                         ByRef config As tEmailManagementConfig) As String
+    If passPct <= config.ConcernBelowPct And distPct >= config.StrongDistAtLeastPct Then
+        ManagementNotableReason = "Polarised Outcome"
+    ElseIf passPct >= config.StrongPassAtLeastPct And distPct >= config.StrongDistAtLeastPct Then
+        ManagementNotableReason = "High Pass & Distinction"
+    ElseIf passPct >= config.StrongPassAtLeastPct Then
+        ManagementNotableReason = "High Pass"
+    Else
+        ManagementNotableReason = "High Distinction"
+    End If
+End Function
+
 Private Function ManagementStrongBefore(ByRef a As tEmailSubjectResult, _
-                                        ByRef b As tEmailSubjectResult) As Boolean
+                                        ByRef b As tEmailSubjectResult, _
+                                        ByRef config As tEmailManagementConfig) As Boolean
     Dim ad As Double, bd As Double, ap As Double, bp As Double
-    Dim al As String, bl As String
+    Dim al As String, bl As String, ar As Long, br As Long
+    Dim aReason As String, bReason As String
     ad = EmailPct(a.DistCount, a.N): bd = EmailPct(b.DistCount, b.N)
-    If ad <> bd Then ManagementStrongBefore = (ad > bd): Exit Function
     ap = EmailPct(a.PassCount, a.N): bp = EmailPct(b.PassCount, b.N)
-    If ap <> bp Then ManagementStrongBefore = (ap > bp): Exit Function
     al = FirstLevelDigit(a.LevelText): bl = FirstLevelDigit(b.LevelText)
     If al <> bl Then ManagementStrongBefore = (al < bl): Exit Function
+
+    aReason = ManagementNotableReason(ap, ad, config)
+    bReason = ManagementNotableReason(bp, bd, config)
+    ar = ManagementNotableReasonRank(aReason)
+    br = ManagementNotableReasonRank(bReason)
+    If ar <> br Then ManagementStrongBefore = (ar < br): Exit Function
+
+    Select Case aReason
+        Case "High Pass"
+            If ap <> bp Then ManagementStrongBefore = (ap > bp): Exit Function
+            If ad <> bd Then ManagementStrongBefore = (ad > bd): Exit Function
+        Case "Polarised Outcome"
+            If ap <> bp Then ManagementStrongBefore = (ap < bp): Exit Function
+            If ad <> bd Then ManagementStrongBefore = (ad > bd): Exit Function
+        Case Else
+            If ad <> bd Then ManagementStrongBefore = (ad > bd): Exit Function
+            If ap <> bp Then ManagementStrongBefore = (ap > bp): Exit Function
+    End Select
+
     If StrComp(a.DisplayName, b.DisplayName, vbTextCompare) <> 0 Then
         ManagementStrongBefore = (StrComp(a.DisplayName, b.DisplayName, vbTextCompare) < 0)
         Exit Function
     End If
     ManagementStrongBefore = (StrComp(a.Scheme, b.Scheme, vbTextCompare) < 0)
+End Function
+
+Private Function ManagementNotableReasonRank(ByVal reasonText As String) As Long
+    Select Case reasonText
+        Case "High Pass & Distinction": ManagementNotableReasonRank = 1
+        Case "High Pass": ManagementNotableReasonRank = 2
+        Case "High Distinction": ManagementNotableReasonRank = 3
+        Case "Polarised Outcome": ManagementNotableReasonRank = 4
+        Case Else: ManagementNotableReasonRank = 5
+    End Select
 End Function
 
 Private Function BuildManagementConcernCriteria(ByRef config As tEmailManagementConfig) As String
