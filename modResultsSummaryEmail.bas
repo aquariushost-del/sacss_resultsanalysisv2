@@ -25,7 +25,7 @@ Option Explicit
 ' MANAGEMENT EMAIL CONFIGURATION (Settings!S1:S7)
 '   S2  MinimumCandidature=10
 '   S3  ConcernBelow=70%
-'   S4  MonitorBelow=80%
+'   S4  MonitorBelow=80%       (retained for compatibility; currently unused)
 '   S5  StrongPassAtLeast=95%
 '   S6  StrongDistinctionAtLeast=40%
 '   S7  PrelimSummaryMode=ASK   (ASK / LEVEL / STREAM)
@@ -87,7 +87,6 @@ End Type
 Private Type tEmailManagementConfig
     MinCandidature As Long
     ConcernBelowPct As Double
-    MonitorBelowPct As Double
     StrongPassAtLeastPct As Double
     StrongDistAtLeastPct As Double
 End Type
@@ -1622,9 +1621,8 @@ Private Sub BuildManagementSummaryWorksheet(ByRef summaries() As tEmailLevelSumm
     WriteSummarySectionTitle ws, rowPtr, "3. Subject-Level Areas of Concern"
     rowPtr = rowPtr + 1
     rowPtr = WriteSummaryConcernTable(ws, rowPtr, subjectResults, subjectResultCount, config)
-    WriteSummaryNote ws, rowPtr, "Criteria: Concern = pass rate below " & FormatThreshold(config.ConcernBelowPct) & _
-                     "; Monitor = pass rate from " & FormatThreshold(config.ConcernBelowPct) & " to below " & _
-                     FormatThreshold(config.MonitorBelowPct) & ". Subjects with fewer than " & config.MinCandidature & _
+    WriteSummaryNote ws, rowPtr, "Criteria: Subjects with a pass rate at or below " & _
+                     FormatThreshold(config.ConcernBelowPct) & " are shown. Subjects with fewer than " & config.MinCandidature & _
                      " students are excluded due to the small candidature."
     rowPtr = rowPtr + 2
 
@@ -1873,12 +1871,11 @@ Private Function WriteSummaryConcernTable(ByVal ws As Worksheet, ByVal startRow 
                                           ByVal resultCount As Long, _
                                           ByRef config As tEmailManagementConfig) As Long
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
-    Dim rowPtr As Long, passPct As Double, statusText As String
-    Dim statusColor As Long, statusFill As Long
+    Dim rowPtr As Long, passPct As Double
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
-            If EmailPct(results(i).PassCount, results(i).N) < config.MonitorBelowPct Then
+            If EmailPct(results(i).PassCount, results(i).N) <= config.ConcernBelowPct Then
                 n = n + 1
                 ReDim Preserve idx(1 To n)
                 idx(n) = i
@@ -1887,7 +1884,7 @@ Private Function WriteSummaryConcernTable(ByVal ws As Worksheet, ByVal startRow 
     Next i
 
     If n = 0 Then
-        ws.Range(ws.Cells(startRow, 1), ws.Cells(startRow, 6)).Merge
+        ws.Range(ws.Cells(startRow, 1), ws.Cells(startRow, 4)).Merge
         ws.Cells(startRow, 1).value = "No subject/G-level groups met the criteria for Areas of Concern."
         ws.Cells(startRow, 1).Font.Color = RGB(96, 120, 142)
         WriteSummaryConcernTable = startRow + 1
@@ -1902,27 +1899,21 @@ Private Function WriteSummaryConcernTable(ByVal ws As Worksheet, ByVal startRow 
         Next j
     Next i
 
-    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate", "Status")
+    WriteSummaryHeaderRow ws, startRow, Array("Level", "Subject / G-Level", "No. Taking", "Pass Rate")
     rowPtr = startRow + 1
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
-        If passPct < config.ConcernBelowPct Then
-            statusText = "Concern": statusColor = RGB(192, 0, 0): statusFill = RGB(255, 240, 240)
-        Else
-            statusText = "Monitor": statusColor = RGB(138, 100, 16): statusFill = RGB(255, 243, 214)
-        End If
         ws.Cells(rowPtr, 1).value = ManagementLevelLabel(results(j).LevelText)
         ws.Cells(rowPtr, 2).value = results(j).DisplayName & " " & results(j).Scheme
         ws.Cells(rowPtr, 3).value = results(j).N
         ws.Cells(rowPtr, 4).value = passPct / 100#
         ws.Cells(rowPtr, 4).NumberFormat = "0.0%"
-        ws.Cells(rowPtr, 5).value = statusText
-        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Font.Color = statusColor
-        ws.Range(ws.Cells(rowPtr, 4), ws.Cells(rowPtr, 5)).Interior.Color = statusFill
+        ws.Cells(rowPtr, 4).Font.Color = RGB(192, 0, 0)
+        ws.Cells(rowPtr, 4).Interior.Color = RGB(255, 240, 240)
         rowPtr = rowPtr + 1
     Next i
-    StyleSummaryDataTable ws, startRow, rowPtr - 1, 5
+    StyleSummaryDataTable ws, startRow, rowPtr - 1, 4
     ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
     WriteSummaryConcernTable = rowPtr
 End Function
@@ -2052,12 +2043,11 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
                                              ByVal resultCount As Long, _
                                              ByRef config As tEmailManagementConfig) As String
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
-    Dim html As String, passPct As Double, statusText As String
-    Dim statusColor As String, statusBg As String
+    Dim html As String, passPct As Double
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
-            If EmailPct(results(i).PassCount, results(i).N) < config.MonitorBelowPct Then
+            If EmailPct(results(i).PassCount, results(i).N) <= config.ConcernBelowPct Then
                 n = n + 1
                 ReDim Preserve idx(1 To n)
                 idx(n) = i
@@ -2079,20 +2069,14 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
     Next i
 
     html = ManagementTableStart() & "<tr style='background:#eef5fb;'>" & HeaderTd("Level") & HeaderTd("Subject / G-Level") & _
-           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & CenterHeaderTd("Status") & "</tr>"
+           CenterHeaderTd("No. Taking") & CenterHeaderTd("Pass Rate") & "</tr>"
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
-        If passPct < config.ConcernBelowPct Then
-            statusText = "Concern": statusColor = "#c00000": statusBg = "#fff0f0"
-        Else
-            statusText = "Monitor": statusColor = "#8a6410": statusBg = "#fff3d6"
-        End If
         html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
                CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
-               CenterNumTd(Format$(passPct, "0.0") & "%", statusColor, statusBg) & _
-               CenterNumTd(statusText, statusColor, statusBg) & "</tr>"
+               CenterNumTd(Format$(passPct, "0.0") & "%", "#c00000", "#fff0f0") & "</tr>"
     Next i
     BuildManagementConcernTable = html & "</table>"
 End Function
@@ -2175,9 +2159,8 @@ Private Function ManagementStrongBefore(ByRef a As tEmailSubjectResult, _
 End Function
 
 Private Function BuildManagementConcernCriteria(ByRef config As tEmailManagementConfig) As String
-    BuildManagementConcernCriteria = "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Criteria: Concern = pass rate below " & _
-        FormatThreshold(config.ConcernBelowPct) & "; Monitor = pass rate from " & FormatThreshold(config.ConcernBelowPct) & _
-        " to below " & FormatThreshold(config.MonitorBelowPct) & ". Subjects with fewer than " & _
+    BuildManagementConcernCriteria = "<div style='font-size:11px;line-height:16px;color:#60788e;margin-top:9px;font-style:italic;'>Criteria: Subjects with a pass rate at or below " & _
+        FormatThreshold(config.ConcernBelowPct) & " are shown. Subjects with fewer than " & _
         config.MinCandidature & " students are excluded due to the small candidature. Full results remain available in the attached Excel workbook.</div>"
 End Function
 
@@ -2924,7 +2907,6 @@ Private Sub ReadEmailManagementConfig(ByRef config As tEmailManagementConfig)
 
     config.MinCandidature = 10
     config.ConcernBelowPct = 70#
-    config.MonitorBelowPct = 80#
     config.StrongPassAtLeastPct = 95#
     config.StrongDistAtLeastPct = 40#
 
@@ -2937,16 +2919,10 @@ Private Sub ReadEmailManagementConfig(ByRef config As tEmailManagementConfig)
     minValue = ReadManagementConfigNumber(ws.Range(MGMT_MIN_N_CELL).value, 10#, False)
     If minValue >= 1# And minValue <= 100000# Then config.MinCandidature = CLng(minValue)
     config.ConcernBelowPct = ReadManagementConfigNumber(ws.Range(MGMT_CONCERN_CELL).value, 70#, True)
-    config.MonitorBelowPct = ReadManagementConfigNumber(ws.Range(MGMT_MONITOR_CELL).value, 80#, True)
     config.StrongPassAtLeastPct = ReadManagementConfigNumber(ws.Range(MGMT_STRONG_PASS_CELL).value, 95#, True)
     config.StrongDistAtLeastPct = ReadManagementConfigNumber(ws.Range(MGMT_STRONG_DIST_CELL).value, 40#, True)
 
     If config.ConcernBelowPct < 0# Or config.ConcernBelowPct > 100# Then config.ConcernBelowPct = 70#
-    If config.MonitorBelowPct <= 0# Or config.MonitorBelowPct > 100# Then config.MonitorBelowPct = 80#
-    If config.ConcernBelowPct >= config.MonitorBelowPct Then
-        config.ConcernBelowPct = 70#
-        config.MonitorBelowPct = 80#
-    End If
     If config.StrongPassAtLeastPct < 0# Or config.StrongPassAtLeastPct > 100# Then config.StrongPassAtLeastPct = 95#
     If config.StrongDistAtLeastPct < 0# Or config.StrongDistAtLeastPct > 100# Then config.StrongDistAtLeastPct = 40#
 End Sub
