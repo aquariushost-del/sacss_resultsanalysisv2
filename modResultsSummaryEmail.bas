@@ -2100,9 +2100,9 @@ Private Function ManagementConcernBefore(ByRef a As tEmailSubjectResult, _
                                          ByRef b As tEmailSubjectResult) As Boolean
     Dim ap As Double, bp As Double, al As String, bl As String
     ap = EmailPct(a.PassCount, a.N): bp = EmailPct(b.PassCount, b.N)
-    If ap <> bp Then ManagementConcernBefore = (ap < bp): Exit Function
     al = FirstLevelDigit(a.LevelText): bl = FirstLevelDigit(b.LevelText)
     If al <> bl Then ManagementConcernBefore = (al < bl): Exit Function
+    If ap <> bp Then ManagementConcernBefore = (ap < bp): Exit Function
     If StrComp(a.DisplayName, b.DisplayName, vbTextCompare) <> 0 Then
         ManagementConcernBefore = (StrComp(a.DisplayName, b.DisplayName, vbTextCompare) < 0)
         Exit Function
