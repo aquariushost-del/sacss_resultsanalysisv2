@@ -1914,6 +1914,7 @@ Private Function WriteSummaryConcernTable(ByVal ws As Worksheet, ByVal startRow 
         rowPtr = rowPtr + 1
     Next i
     StyleSummaryDataTable ws, startRow, rowPtr - 1, 4
+    ApplySummaryLevelDividers ws, startRow + 1, rowPtr - 1, 4
     ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
     WriteSummaryConcernTable = rowPtr
 End Function
@@ -1985,9 +1986,30 @@ Private Function WriteSummaryStrongTable(ByVal ws As Worksheet, ByVal startRow A
         rowPtr = rowPtr + 1
     Next i
     StyleSummaryDataTable ws, startRow, rowPtr - 1, 6
+    ApplySummaryLevelDividers ws, startRow + 1, rowPtr - 1, 6
     ws.Range(ws.Cells(startRow + 1, 2), ws.Cells(rowPtr - 1, 2)).HorizontalAlignment = xlLeft
     WriteSummaryStrongTable = rowPtr
 End Function
+
+Private Sub ApplySummaryLevelDividers(ByVal ws As Worksheet, _
+                                      ByVal firstDataRow As Long, _
+                                      ByVal lastDataRow As Long, _
+                                      ByVal lastCol As Long)
+    Dim r As Long, currentLevel As String, previousLevel As String
+    If lastDataRow < firstDataRow Then Exit Sub
+
+    For r = firstDataRow To lastDataRow
+        currentLevel = Trim$(CStr(ws.Cells(r, 1).value))
+        If previousLevel <> "" And StrComp(currentLevel, previousLevel, vbTextCompare) <> 0 Then
+            With ws.Range(ws.Cells(r, 1), ws.Cells(r, lastCol)).Borders(xlEdgeTop)
+                .LineStyle = xlContinuous
+                .Color = RGB(183, 204, 221)
+                .Weight = xlMedium
+            End With
+        End If
+        previousLevel = currentLevel
+    Next r
+End Sub
 
 Private Function BuildManagementStudentOutcomesTable(ByRef summaries() As tEmailLevelSummary, _
                                                      ByVal summaryCount As Long, _
@@ -2059,6 +2081,7 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
                                              ByRef config As tEmailManagementConfig) As String
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
     Dim html As String, passPct As Double
+    Dim currentLevel As String, previousLevel As String, rowCells As String
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
@@ -2088,10 +2111,15 @@ Private Function BuildManagementConcernTable(ByRef results() As tEmailSubjectRes
     For i = 1 To n
         j = idx(i)
         passPct = EmailPct(results(j).PassCount, results(j).N)
-        html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
+        currentLevel = ManagementLevelLabel(results(j).LevelText)
+        rowCells = BoldTextTd(currentLevel, "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
                CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
-               CenterNumTd(Format$(passPct, "0.0") & "%", "#c00000", "#fff0f0") & "</tr>"
+               CenterNumTd(Format$(passPct, "0.0") & "%", "#c00000", "#fff0f0")
+        rowCells = ApplyEmailLevelDivider(rowCells, previousLevel <> "" And _
+                   StrComp(currentLevel, previousLevel, vbTextCompare) <> 0)
+        html = html & "<tr>" & rowCells & "</tr>"
+        previousLevel = currentLevel
     Next i
     BuildManagementConcernTable = html & "</table>"
 End Function
@@ -2116,6 +2144,7 @@ Private Function BuildManagementStrongTable(ByRef results() As tEmailSubjectResu
     Dim idx() As Long, n As Long, i As Long, j As Long, tmp As Long
     Dim html As String, passPct As Double, distPct As Double
     Dim reasonText As String, reasonColor As String, reasonBg As String
+    Dim currentLevel As String, previousLevel As String, rowCells As String
 
     For i = 1 To resultCount
         If results(i).N >= config.MinCandidature Then
@@ -2160,14 +2189,30 @@ Private Function BuildManagementStrongTable(ByRef results() As tEmailSubjectResu
             Case Else
                 reasonColor = "#7f6000": reasonBg = "#fff3d6"
         End Select
-        html = html & "<tr>" & TextTd(ManagementLevelLabel(results(j).LevelText), "#1f4e79") & _
+        currentLevel = ManagementLevelLabel(results(j).LevelText)
+        rowCells = BoldTextTd(currentLevel, "#1f4e79") & _
                TextTd(results(j).DisplayName & " " & results(j).Scheme, "#23384d") & _
                CenterNumTd(CStr(results(j).N), "#23384d", "#ffffff") & _
                CenterNumTd(Format$(passPct, "0.0") & "%", "#548235", "#edf6e8") & _
                CenterNumTd(Format$(distPct, "0.0") & "%", "#548235", "#edf6e8") & _
-               CenterNumTd(reasonText, reasonColor, reasonBg) & "</tr>"
+               CenterNumTd(reasonText, reasonColor, reasonBg)
+        rowCells = ApplyEmailLevelDivider(rowCells, previousLevel <> "" And _
+                   StrComp(currentLevel, previousLevel, vbTextCompare) <> 0)
+        html = html & "<tr>" & rowCells & "</tr>"
+        previousLevel = currentLevel
     Next i
     BuildManagementStrongTable = html & "</table>"
+End Function
+
+Private Function ApplyEmailLevelDivider(ByVal rowCellsHtml As String, _
+                                        ByVal addDivider As Boolean) As String
+    If addDivider Then
+        ApplyEmailLevelDivider = Replace(rowCellsHtml, _
+            "border-bottom:1px solid #e5edf4;", _
+            "border-top:2px solid #b7ccdd;border-bottom:1px solid #e5edf4;")
+    Else
+        ApplyEmailLevelDivider = rowCellsHtml
+    End If
 End Function
 
 Private Function ManagementNotableReason(ByVal passPct As Double, _
@@ -2779,6 +2824,11 @@ End Function
 
 Private Function TextTd(ByVal valueText As String, ByVal colorText As String) As String
     TextTd = "<td style='padding:6px 8px;border-bottom:1px solid #e5edf4;color:" & colorText & ";'>" & HtmlEncode(valueText) & "</td>"
+End Function
+
+Private Function BoldTextTd(ByVal valueText As String, ByVal colorText As String) As String
+    BoldTextTd = "<td style='padding:6px 8px;border-bottom:1px solid #e5edf4;color:" & colorText & _
+                 ";font-weight:bold;'>" & HtmlEncode(valueText) & "</td>"
 End Function
 
 Private Function NumTd(ByVal valueText As String, ByVal colorText As String, ByVal bgColor As String) As String
