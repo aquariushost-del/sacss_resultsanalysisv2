@@ -2745,7 +2745,7 @@ End Function
 '------------------------------------------------------------
 Private Function FindEmailHeader(ByVal ws As Worksheet, ByVal headerText As String) As Long
     Dim lastCol As Long, c As Long
-    lastCol = ws.Cells(1, ws.Columns.count).End(xlToLeft).Column
+    lastCol = LastPopulatedEmailColumn(ws, 1)
     For c = 1 To lastCol
         If StrComp(Trim$(CStr(ws.Cells(1, c).value)), headerText, vbTextCompare) = 0 Then
             FindEmailHeader = c
@@ -2757,13 +2757,33 @@ End Function
 Private Function FindEmailHeaderAtRow(ByVal ws As Worksheet, ByVal headerRow As Long, _
                                       ByVal headerText As String) As Long
     Dim lastCol As Long, c As Long
-    lastCol = ws.Cells(headerRow, ws.Columns.count).End(xlToLeft).Column
+    lastCol = LastPopulatedEmailColumn(ws, headerRow)
     For c = 1 To lastCol
         If StrComp(Trim$(CStr(ws.Cells(headerRow, c).value)), headerText, vbTextCompare) = 0 Then
             FindEmailHeaderAtRow = c
             Exit Function
         End If
     Next c
+End Function
+
+Private Function LastPopulatedEmailColumn(ByVal ws As Worksheet, _
+                                          ByVal rowNumber As Long) As Long
+    Dim lastCell As Range
+
+    ' Range.End can stop before hidden trailing columns. Find searches the
+    ' full row and therefore still locates hidden AtRisk headers in O:P.
+    On Error Resume Next
+    Set lastCell = ws.Rows(rowNumber).Find( _
+        What:="*", _
+        After:=ws.Cells(rowNumber, 1), _
+        LookIn:=xlFormulas, _
+        LookAt:=xlPart, _
+        SearchOrder:=xlByColumns, _
+        SearchDirection:=xlPrevious, _
+        MatchCase:=False)
+    On Error GoTo 0
+
+    If Not lastCell Is Nothing Then LastPopulatedEmailColumn = lastCell.Column
 End Function
 
 Private Function StripEmailGradeSuffix(ByVal headerText As String) As String
