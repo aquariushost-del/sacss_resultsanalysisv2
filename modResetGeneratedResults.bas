@@ -116,7 +116,9 @@ Private Function HasGeneratedDashboardMenus(ByVal wb As Workbook) As Boolean
     If Trim$(CStr(ws.Range("G3").value)) <> "" Or _
        Trim$(CStr(ws.Range("M3").value)) <> "" Or _
        Trim$(CStr(ws.Range("P3").value)) <> "" Or _
-       Trim$(CStr(ws.Range("T3").value)) <> "" Then
+       Trim$(CStr(ws.Range("T3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("Z3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("AC3").value)) <> "" Then
         HasGeneratedDashboardMenus = True
         Exit Function
     End If
@@ -142,6 +144,7 @@ Private Sub ClearGeneratedDashboardMenus(ByVal wb As Workbook)
     ws.Range("G3:L203").Clear
     ws.Range("M3:S223").Clear
     ws.Range("T3:Y203").Clear
+    ws.Range("Z3:AE223").Clear
 
     For k = ws.Shapes.count To 1 Step -1
         If IsGeneratedMenuShape(ws.Shapes(k).Name) Then ws.Shapes(k).Delete
@@ -156,6 +159,9 @@ Private Function IsGeneratedMenuShape(ByVal shapeName As String) As Boolean
         (Left$(nm, Len("NAV_SUBJ_")) = "NAV_SUBJ_") Or _
         (Left$(nm, Len("NAV_ATRISK_")) = "NAV_ATRISK_") Or _
         (Left$(nm, Len("NAV_TOPQUAL_")) = "NAV_TOPQUAL_") Or _
+        (Left$(nm, Len("NAV_CLASSAN_")) = "NAV_CLASSAN_") Or _
+        (Left$(nm, Len("NAV_SUBJCLASS_")) = "NAV_SUBJCLASS_") Or _
+        (nm = "NAV_SUMMARY") Or _
         (Left$(nm, Len("NAV_IP_")) = "NAV_IP_") Or _
         (Left$(nm, Len("NAV_FP_")) = "NAV_FP_")
 End Function
@@ -181,6 +187,10 @@ Private Function IsGeneratedResultSheet(ByVal ws As Worksheet) As Boolean
     If Left$(upperName, Len("ATRISK_S")) = "ATRISK_S" Then
         IsGeneratedResultSheet = True
     ElseIf Left$(upperName, Len("TOPQUAL_S")) = "TOPQUAL_S" Then
+        IsGeneratedResultSheet = True
+    ElseIf Left$(upperName, Len("CLASSAN_S")) = "CLASSAN_S" Then
+        IsGeneratedResultSheet = True
+    ElseIf Left$(upperName, Len("SUBJCLASS_S")) = "SUBJCLASS_S" Then
         IsGeneratedResultSheet = True
     ElseIf Left$(upperName, Len("FT_PROGRESS_")) = "FT_PROGRESS_" Then
         IsGeneratedResultSheet = True
