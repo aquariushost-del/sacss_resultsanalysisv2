@@ -117,6 +117,8 @@ Private Function HasGeneratedDashboardMenus(ByVal wb As Workbook) As Boolean
        Trim$(CStr(ws.Range("M3").value)) <> "" Or _
        Trim$(CStr(ws.Range("P3").value)) <> "" Or _
        Trim$(CStr(ws.Range("T3").value)) <> "" Or _
+       Trim$(CStr(ws.Range("M15").value)) <> "" Or _
+       Trim$(CStr(ws.Range("P15").value)) <> "" Or _
        Trim$(CStr(ws.Range("Z3").value)) <> "" Or _
        Trim$(CStr(ws.Range("AC3").value)) <> "" Then
         HasGeneratedDashboardMenus = True

@@ -20,8 +20,11 @@ Private Const SUBJCLASS_REPORT_PREFIX As String = "SubjClass_"
 Private Const CLASS_NAV_PREFIX As String = "Nav_ClassAn_"
 Private Const SUBJCLASS_NAV_PREFIX As String = "Nav_SubjClass_"
 Private Const DASHBOARD_SHEET As String = "Dashboard"
-Private Const CLASS_NAV_START_CELL As String = "Z3"
-Private Const SUBJCLASS_NAV_START_CELL As String = "AC3"
+' Keep the Dashboard compact: these menus sit below the existing
+' At-Risk and Top Students menus. Rows 3-13 are reserved for five
+' level buttons in those upper menus; row 14 is a visual spacer.
+Private Const CLASS_NAV_START_CELL As String = "M15"
+Private Const SUBJCLASS_NAV_START_CELL As String = "P15"
 Private Const SHAPE_ROUNDED_RECTANGLE As Long = 5
 
 Private Const DEFAULT_MONITOR_PCT As Double = 10#
@@ -106,7 +109,7 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
     Dim totalFailThree As Long, totalFailFour As Long, totalFailFivePlus As Long
     Dim totalFailThreePlus As Long, totalAbCases As Long, totalVrmcCases As Long
     Dim monitorPct As Double, elevatedPct As Double, priorityPct As Double
-    Dim riskRate As Double, riskShare As Double, readingText As String
+    Dim riskRate As Double, readingText As String
     Dim titleText As String
 
     classCol = FindHeaderAtRow(wsSrc, 4, "Class")
@@ -183,12 +186,12 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
 
     titleText = Replace(reportSuffix, "_", " ") & " - Class Concentration Analysis"
     With wsOut
-        .Range("A1:N1").Merge
+        .Range("A1:M1").Merge
         .Range("A1").value = titleText
         .Range("A1").Font.Bold = True
         .Range("A1").Font.Size = 16
         .Range("A1").Font.Color = RGB(31, 78, 121)
-        .Range("A2:N2").Merge
+        .Range("A2:M2").Merge
         .Range("A2").value = "Class outcomes use each student's own subject combination. AB is counted as a failure; VR/MC is excluded. Students with 0 attempted, 0 passed and 0 failed are excluded from outcome rates."
         .Range("A2").Font.Italic = True
         .Range("A2").Font.Color = RGB(96, 120, 142)
@@ -198,7 +201,7 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
 
     WriteStaticHeader wsOut, 4, Array("Class", "Cohort", "Pass All", "Fail 1", "Fail 2", _
                      "Fail 3", "Fail 4", "Fail 5+", "Fail 3+", "Fail 3+ Rate", _
-                     "Share of Level Risk", "AB Cases", "VR/MC Cases", "KM Reading")
+                     "AB Cases", "VR/MC Cases", "Status")
 
     outRow = 5
     For i = 1 To classCount
@@ -214,12 +217,11 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
         wsOut.Cells(outRow, 8).value = DictLong(failFivePlus, className)
         wsOut.Cells(outRow, 9).value = DictLong(failThreePlus, className)
         wsOut.Cells(outRow, 10).value = riskRate
-        wsOut.Cells(outRow, 11).value = 0#
-        wsOut.Cells(outRow, 12).value = DictLong(abCases, className)
-        wsOut.Cells(outRow, 13).value = DictLong(vrmcCases, className)
+        wsOut.Cells(outRow, 11).value = DictLong(abCases, className)
+        wsOut.Cells(outRow, 12).value = DictLong(vrmcCases, className)
         readingText = ClassRiskReading(riskRate * 100#, monitorPct, elevatedPct, priorityPct)
-        wsOut.Cells(outRow, 14).value = readingText
-        StyleClassRiskReading wsOut.Cells(outRow, 14), readingText
+        wsOut.Cells(outRow, 13).value = readingText
+        StyleClassRiskReading wsOut.Cells(outRow, 13), readingText
 
         totalCohort = totalCohort + DictLong(cohort, className)
         totalPassAll = totalPassAll + DictLong(passAll, className)
@@ -234,12 +236,6 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
         outRow = outRow + 1
     Next i
 
-    If totalFailThreePlus > 0 Then
-        For r = 5 To outRow - 1
-            wsOut.Cells(r, 11).value = wsOut.Cells(r, 9).value / totalFailThreePlus
-        Next r
-    End If
-
     wsOut.Cells(outRow, 1).value = "COHORT"
     wsOut.Cells(outRow, 2).value = totalCohort
     wsOut.Cells(outRow, 3).value = totalPassAll
@@ -250,35 +246,34 @@ Private Sub WriteClassAnalysis(ByVal wsSrc As Worksheet, _
     wsOut.Cells(outRow, 8).value = totalFailFivePlus
     wsOut.Cells(outRow, 9).value = totalFailThreePlus
     wsOut.Cells(outRow, 10).value = SafeRatio(totalFailThreePlus, totalCohort)
-    wsOut.Cells(outRow, 11).value = IIf(totalFailThreePlus > 0, 1#, 0#)
-    wsOut.Cells(outRow, 12).value = totalAbCases
-    wsOut.Cells(outRow, 13).value = totalVrmcCases
-    wsOut.Cells(outRow, 14).value = levelCode & " overall"
-    StyleStaticCohortRow wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 14))
+    wsOut.Cells(outRow, 11).value = totalAbCases
+    wsOut.Cells(outRow, 12).value = totalVrmcCases
+    wsOut.Cells(outRow, 13).value = levelCode & " overall"
+    StyleStaticCohortRow wsOut.Range(wsOut.Cells(outRow, 1), wsOut.Cells(outRow, 13))
 
     FinalizeClassAnalysis wsOut, outRow
     AddStaticReportHomeButton wsOut, RGB(217, 234, 211), RGB(106, 168, 79), RGB(39, 78, 19)
 End Sub
 
 Private Sub FinalizeClassAnalysis(ByVal ws As Worksheet, ByVal lastRow As Long)
-    With ws.Range("A4:N" & lastRow)
+    With ws.Range("A4:M" & lastRow)
         .Borders.LineStyle = xlContinuous
         .Borders.Color = RGB(210, 220, 230)
         .Borders.Weight = xlThin
         .VerticalAlignment = xlCenter
     End With
     ws.Range("B5:I" & lastRow).HorizontalAlignment = xlCenter
-    ws.Range("J5:K" & lastRow).NumberFormat = "0.0%"
-    ws.Range("J5:N" & lastRow).HorizontalAlignment = xlCenter
+    ws.Range("J5:J" & lastRow).NumberFormat = "0.0%"
+    ws.Range("J5:M" & lastRow).HorizontalAlignment = xlCenter
     ws.Columns("A").ColumnWidth = 20
     ws.Columns("B:I").ColumnWidth = 10
-    ws.Columns("J:K").ColumnWidth = 15
-    ws.Columns("L:M").ColumnWidth = 11
-    ws.Columns("N").ColumnWidth = 18
+    ws.Columns("J").ColumnWidth = 13
+    ws.Columns("K:L").ColumnWidth = 11
+    ws.Columns("M").ColumnWidth = 18
     ws.Rows(4).RowHeight = 30
-    ws.Range("A4:N4").WrapText = True
+    ws.Range("A4:M4").WrapText = True
     FreezeStaticReport ws, "A5"
-    LimitStaticReportArea ws, lastRow + 3, 14
+    LimitStaticReportArea ws, lastRow + 3, 13
 End Sub
 
 '------------------------------------------------------------
@@ -441,15 +436,25 @@ End Sub
 ' DASHBOARD NAVIGATION
 '------------------------------------------------------------
 Public Sub BuildSecClassAnalysisNavigation()
+    ClearLegacyStaticNavigationCells "Z3:AB223"
     BuildStaticReportNavigation CLASS_REPORT_PREFIX, CLASS_NAV_PREFIX, CLASS_NAV_START_CELL, _
                                 "Class Analysis Menu", " Class Analysis", _
                                 RGB(234, 209, 220), RGB(166, 77, 121), RGB(116, 27, 71)
 End Sub
 
 Public Sub BuildSecSubjectClassNavigation()
+    ClearLegacyStaticNavigationCells "AC3:AE223"
     BuildStaticReportNavigation SUBJCLASS_REPORT_PREFIX, SUBJCLASS_NAV_PREFIX, SUBJCLASS_NAV_START_CELL, _
                                 "Subject x Class Menu", " Subject x Class", _
                                 RGB(208, 224, 227), RGB(69, 129, 142), RGB(19, 79, 92)
+End Sub
+
+Private Sub ClearLegacyStaticNavigationCells(ByVal clearAddress As String)
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(DASHBOARD_SHEET)
+    If Not ws Is Nothing Then ws.Range(clearAddress).Clear
+    On Error GoTo 0
 End Sub
 
 Private Sub BuildStaticReportNavigation(ByVal reportPrefix As String, _

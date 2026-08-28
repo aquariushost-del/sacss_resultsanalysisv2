@@ -406,7 +406,8 @@ Public Sub BuildTopQualityNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 220, startCol + 3)).Clear
+    ' Rows 15 onward are reserved for the Subject x Class menu below.
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 11, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(TOP_NAV_BTN_PREFIX)) = TOP_NAV_BTN_PREFIX Then shp.Delete
@@ -1828,7 +1829,8 @@ Public Sub BuildSec_AtRiskNavigation()
     startRow = startCell.Row
     startCol = startCell.Column
 
-    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 220, startCol + 3)).Clear
+    ' Rows 15 onward are reserved for the Class Analysis menu below.
+    wsNav.Range(wsNav.Cells(startRow, startCol), wsNav.Cells(startRow + 11, startCol + 3)).Clear
     For k = wsNav.Shapes.count To 1 Step -1
         Set shp = wsNav.Shapes(k)
         If Left$(shp.Name, Len(ATRISK_NAV_BTN_PREFIX)) = ATRISK_NAV_BTN_PREFIX Then
