@@ -70,22 +70,25 @@ Public Sub BuildAllSecReportsAndMenus()
     Application.ScreenUpdating = False
     gSecBatchMode = True
 
-    Application.StatusBar = "1 of 4: Analysing SEC subjects..."
+    Application.StatusBar = "1 of 5: Analysing SEC subjects..."
     BuildAllSec_SubjectAnalysis
 
-    Application.StatusBar = "2 of 4: Building SEC AtRisk summaries..."
+    Application.StatusBar = "2 of 5: Building SEC AtRisk summaries..."
     BuildSec_AtRiskSummary
 
-    Application.StatusBar = "3 of 4: Building SEC Top Students summaries..."
+    Application.StatusBar = "3 of 5: Building SEC Top Students summaries..."
     BuildSec_TopQualityByLevel
 
-    Application.StatusBar = "4 of 4: Refreshing the SEC menu..."
+    Application.StatusBar = "4 of 5: Building class and Subject x Class reports..."
+    BuildSecClassAndSubjectClassAnalysis True
+
+    Application.StatusBar = "5 of 5: Refreshing the SEC menu..."
     BuildSubjectAnalysisNavigation
 
     gSecBatchMode = False
     Application.StatusBar = False
     Application.ScreenUpdating = previousScreenUpdating
-    MsgBox "SEC subject analysis, AtRisk summaries, Top Students summaries and menus have been refreshed.", _
+    MsgBox "SEC subject analysis, AtRisk summaries, Top Students, Class Analysis, Subject x Class reports and menus have been refreshed.", _
            vbInformation, "SEC Reports Complete"
     Exit Sub
 
@@ -176,7 +179,9 @@ Private Function GetSecSourceReportLabels(ByVal ws As Worksheet, _
        Or InStr(1, LCase$(ws.Name), "_subj analysis_") > 0 _
        Or InStr(1, LCase$(ws.Name), "dashboard") > 0 _
        Or InStr(1, LCase$(ws.Name), "atrisk_") > 0 _
-       Or InStr(1, LCase$(ws.Name), "topqual_") > 0 Then Exit Function
+       Or InStr(1, LCase$(ws.Name), "topqual_") > 0 _
+       Or InStr(1, LCase$(ws.Name), "classan_") > 0 _
+       Or InStr(1, LCase$(ws.Name), "subjclass_") > 0 Then Exit Function
 
     classCol = FindHeaderColumn(ws, 1, "Class")
     assessmentCol = FindHeaderColumn(ws, 1, "Assessment")
